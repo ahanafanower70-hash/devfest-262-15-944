@@ -6,6 +6,8 @@
   <title>Smart Escape: Interactive Evacuation Route Simulator</title>
   <meta name="description" content="AI DevFest Smart Escape - Browser-based Interactive Evacuation Route Simulator using Dijkstra's algorithm with dynamic hazard handling.">
   
+  <link rel="icon" type="image/png" href="logo.png">
+  
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
@@ -177,15 +179,8 @@
   <header class="glass-panel sticky top-0 z-50 px-4 lg:px-6 py-2.5 flex flex-wrap items-center justify-between gap-3 border-b border-slate-800">
     <!-- Brand / Title -->
     <div class="flex items-center gap-3">
-      <div class="relative flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 via-indigo-600 to-emerald-500 shadow-lg shadow-brand-500/20 ring-1 ring-white/20">
-        <svg class="w-6 h-6 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-          <path d="m9 12 2 2 4-4"/>
-        </svg>
-        <span class="absolute -top-1 -right-1 flex h-3 w-3">
-          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-          <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-        </span>
+      <div class="relative flex items-center justify-center w-11 h-11 rounded-xl overflow-hidden bg-slate-900 border border-slate-700/80 shadow-lg shadow-emerald-500/10 flex-shrink-0">
+        <img src="logo.png" alt="Smart Escape Logo" class="w-full h-full object-cover">
       </div>
       <div>
         <div class="flex items-center gap-2">
@@ -431,12 +426,24 @@
         
         <!-- Status Indicator Pill Header -->
         <div class="flex items-center justify-between gap-2 mb-3">
-          <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400" data-i18n="section_route_status">
+          <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5" data-i18n="section_route_status">
+            <span class="w-2 h-2 rounded-full bg-brand-400"></span>
             Route Status
           </h2>
-          <div id="routeStatusBadge" class="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold shadow-sm bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
-            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span id="routeStatusText" data-i18n="status_optimal">OPTIMAL ROUTE FOUND</span>
+          <div id="routeStatusBadge" class="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold shadow-sm bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 flex-shrink-0">
+            <span id="routeStatusDot" class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span id="routeStatusText">OPTIMAL ROUTE FOUND</span>
+          </div>
+        </div>
+
+        <!-- Prominent Computed Route Result Box (AI DevFest Spec) -->
+        <div id="evaluationResultBanner" class="p-3 rounded-xl bg-slate-900/90 border border-emerald-500/40 mb-3 shadow-lg transition-all duration-200">
+          <div class="flex items-center justify-between text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">
+            <span data-i18n="eval_result_label">Calculated Route Result:</span>
+            <span id="evalStatusIndicator" class="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">OPTIMAL</span>
+          </div>
+          <div id="evalResultText" class="font-mono text-sm sm:text-base font-black text-emerald-300 break-all tracking-wide">
+            R1 - C1 - C2 - E1; cost 7
           </div>
         </div>
 
@@ -658,7 +665,7 @@
         {"id": "e2", "from": "C1", "to": "C2", "cost": 3},
         {"id": "e3", "from": "C2", "to": "E1", "cost": 2},
         {"id": "e4", "from": "R2", "to": "C3", "cost": 2},
-        {"id": "e5", "from": "C1", "to": "C3", "cost": 2},
+        {"id": "e5", "from": "C1", "to": "C3", "cost": 4},
         {"id": "e6", "from": "C3", "to": "C4", "cost": 3},
         {"id": "e7", "from": "C4", "to": "E2", "cost": 2},
         {"id": "e8", "from": "C2", "to": "C4", "cost": 5}
@@ -701,6 +708,7 @@
         btn_popover_start: "Set as Start",
         btn_popover_hazard: "Toggle Blocked",
         section_route_status: "Route Status",
+        eval_result_label: "Calculated Route Result:",
         status_optimal: "OPTIMAL ROUTE FOUND",
         status_start_blocked: "Starting location blocked",
         status_no_route: "No route available",
@@ -771,6 +779,7 @@
         btn_popover_start: "শুরু হিসেবে নিন",
         btn_popover_hazard: "টগল ব্লক",
         section_route_status: "রুটের অবস্থা",
+        eval_result_label: "গণনাকৃত রুটের ফলাফল:",
         status_optimal: "সর্বোত্তম রুট পাওয়া গেছে",
         status_start_blocked: "Starting location blocked",
         status_no_route: "No route available",
@@ -1803,24 +1812,38 @@
       document.getElementById('activeStartBadge').textContent = State.startNodeId;
       document.getElementById('buildingNameTag').textContent = State.buildingData.building || 'Building';
 
-      // Route Status Pill & Banner
+      // Route Status Elements
       const statusBadge = document.getElementById('routeStatusBadge');
+      const statusDot = document.getElementById('routeStatusDot');
       const statusText = document.getElementById('routeStatusText');
+      const evalBanner = document.getElementById('evaluationResultBanner');
+      const evalIndicator = document.getElementById('evalStatusIndicator');
+      const evalText = document.getElementById('evalResultText');
       const alertBox = document.getElementById('statusAlertBox');
-      const metricsGrid = document.getElementById('metricsGrid');
 
       alertBox.classList.add('hidden');
       alertBox.innerHTML = '';
 
       if (route.status === 'BLOCKED_START') {
-        statusBadge.className = 'flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold shadow-sm bg-rose-500/20 text-rose-400 border border-rose-500/40';
+        // Status Badge Pill
+        statusBadge.className = 'flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold shadow-sm bg-rose-500/20 text-rose-400 border border-rose-500/50 flex-shrink-0';
+        statusDot.className = 'w-2 h-2 rounded-full bg-rose-500 animate-ping';
         statusText.textContent = t.status_start_blocked;
+
+        // Computed Evaluation Result Banner
+        if (evalBanner && evalIndicator && evalText) {
+          evalBanner.className = 'p-3 rounded-xl bg-rose-950/40 border border-rose-500/50 mb-3 shadow-lg transition-all duration-200';
+          evalIndicator.className = 'px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-rose-500/20 text-rose-400 border border-rose-500/30';
+          evalIndicator.textContent = 'BLOCKED';
+          evalText.className = 'font-mono text-sm sm:text-base font-black text-rose-300 break-all tracking-wide';
+          evalText.textContent = t.status_start_blocked;
+        }
 
         alertBox.className = 'p-3 rounded-xl border border-rose-500/40 bg-rose-950/40 text-rose-300 text-xs flex items-center gap-2 mb-3';
         alertBox.innerHTML = `
           <svg class="w-4 h-4 text-rose-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
           <div>
-            <strong>${t.status_start_blocked}</strong>: Node <code>${State.startNodeId}</code> is currently blocked or unavailable. Choose an unblocked room or corridor.
+            <strong>${t.status_start_blocked}</strong>: Selected start location <code>${State.startNodeId}</code> is currently blocked by a hazard.
           </div>
         `;
         alertBox.classList.remove('hidden');
@@ -1829,8 +1852,19 @@
         document.getElementById('metricExit').textContent = '—';
         document.getElementById('metricSteps').textContent = '—';
       } else if (route.status === 'NO_ROUTE') {
-        statusBadge.className = 'flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold shadow-sm bg-amber-500/20 text-amber-400 border border-amber-500/40';
+        // Status Badge Pill
+        statusBadge.className = 'flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold shadow-sm bg-amber-500/20 text-amber-400 border border-amber-500/50 flex-shrink-0';
+        statusDot.className = 'w-2 h-2 rounded-full bg-amber-400 animate-ping';
         statusText.textContent = t.status_no_route;
+
+        // Computed Evaluation Result Banner
+        if (evalBanner && evalIndicator && evalText) {
+          evalBanner.className = 'p-3 rounded-xl bg-amber-950/40 border border-amber-500/50 mb-3 shadow-lg transition-all duration-200';
+          evalIndicator.className = 'px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-amber-500/20 text-amber-400 border border-amber-500/30';
+          evalIndicator.textContent = 'UNREACHABLE';
+          evalText.className = 'font-mono text-sm sm:text-base font-black text-amber-300 break-all tracking-wide';
+          evalText.textContent = t.status_no_route;
+        }
 
         alertBox.className = 'p-3 rounded-xl border border-amber-500/40 bg-amber-950/40 text-amber-300 text-xs flex items-center gap-2 mb-3';
         alertBox.innerHTML = `
@@ -1846,8 +1880,18 @@
         document.getElementById('metricSteps').textContent = '—';
       } else {
         // SUCCESS
-        statusBadge.className = 'flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold shadow-sm bg-emerald-500/20 text-emerald-400 border border-emerald-500/40';
+        statusBadge.className = 'flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold shadow-sm bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 flex-shrink-0';
+        statusDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
         statusText.textContent = t.status_optimal;
+
+        // Computed Evaluation Result Banner (Rulebook format: R1 - C1 - C2 - E1; cost 7)
+        if (evalBanner && evalIndicator && evalText) {
+          evalBanner.className = 'p-3 rounded-xl bg-slate-900/90 border border-emerald-500/40 mb-3 shadow-lg transition-all duration-200';
+          evalIndicator.className = 'px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+          evalIndicator.textContent = 'OPTIMAL';
+          evalText.className = 'font-mono text-sm sm:text-base font-black text-emerald-300 break-all tracking-wide';
+          evalText.textContent = `${route.path.join(' - ')}; cost ${route.cost}`;
+        }
 
         document.getElementById('metricCost').textContent = route.cost;
         document.getElementById('metricExit').textContent = route.exit;

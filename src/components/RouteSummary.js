@@ -13,21 +13,34 @@ export class RouteSummary {
   update(route, buildingData, startNodeId, currentLang = 'en') {
     const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
     const statusBadge = document.getElementById('routeStatusBadge');
+    const statusDot = document.getElementById('routeStatusDot');
     const statusText = document.getElementById('routeStatusText');
+    const evalBanner = document.getElementById('evaluationResultBanner');
+    const evalIndicator = document.getElementById('evalStatusIndicator');
+    const evalText = document.getElementById('evalResultText');
     const alertBox = document.getElementById('statusAlertBox');
 
     alertBox.classList.add('hidden');
     alertBox.innerHTML = '';
 
     if (route.status === 'BLOCKED_START') {
-      statusBadge.className = 'flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold shadow-sm bg-rose-500/20 text-rose-400 border border-rose-500/40';
-      statusText.textContent = t.status_start_blocked;
+      if (statusBadge) statusBadge.className = 'flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold shadow-sm bg-rose-500/20 text-rose-400 border border-rose-500/50 flex-shrink-0';
+      if (statusDot) statusDot.className = 'w-2 h-2 rounded-full bg-rose-500 animate-ping';
+      if (statusText) statusText.textContent = t.status_start_blocked;
+
+      if (evalBanner && evalIndicator && evalText) {
+        evalBanner.className = 'p-3 rounded-xl bg-rose-950/40 border border-rose-500/50 mb-3 shadow-lg transition-all duration-200';
+        evalIndicator.className = 'px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-rose-500/20 text-rose-400 border border-rose-500/30';
+        evalIndicator.textContent = 'BLOCKED';
+        evalText.className = 'font-mono text-sm sm:text-base font-black text-rose-300 break-all tracking-wide';
+        evalText.textContent = t.status_start_blocked;
+      }
 
       alertBox.className = 'p-3 rounded-xl border border-rose-500/40 bg-rose-950/40 text-rose-300 text-xs flex items-center gap-2 mb-3';
       alertBox.innerHTML = `
         <svg class="w-4 h-4 text-rose-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
         <div>
-          <strong>${t.status_start_blocked}</strong>: Node <code>${startNodeId}</code> is currently blocked or unavailable. Choose an unblocked room or corridor.
+          <strong>${t.status_start_blocked}</strong>: Selected start location <code>${startNodeId}</code> is currently blocked by a hazard.
         </div>
       `;
       alertBox.classList.remove('hidden');
@@ -36,8 +49,17 @@ export class RouteSummary {
       document.getElementById('metricExit').textContent = '—';
       document.getElementById('metricSteps').textContent = '—';
     } else if (route.status === 'NO_ROUTE') {
-      statusBadge.className = 'flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold shadow-sm bg-amber-500/20 text-amber-400 border border-amber-500/40';
-      statusText.textContent = t.status_no_route;
+      if (statusBadge) statusBadge.className = 'flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold shadow-sm bg-amber-500/20 text-amber-400 border border-amber-500/50 flex-shrink-0';
+      if (statusDot) statusDot.className = 'w-2 h-2 rounded-full bg-amber-400 animate-ping';
+      if (statusText) statusText.textContent = t.status_no_route;
+
+      if (evalBanner && evalIndicator && evalText) {
+        evalBanner.className = 'p-3 rounded-xl bg-amber-950/40 border border-amber-500/50 mb-3 shadow-lg transition-all duration-200';
+        evalIndicator.className = 'px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-amber-500/20 text-amber-400 border border-amber-500/30';
+        evalIndicator.textContent = 'UNREACHABLE';
+        evalText.className = 'font-mono text-sm sm:text-base font-black text-amber-300 break-all tracking-wide';
+        evalText.textContent = t.status_no_route;
+      }
 
       alertBox.className = 'p-3 rounded-xl border border-amber-500/40 bg-amber-950/40 text-amber-300 text-xs flex items-center gap-2 mb-3';
       alertBox.innerHTML = `
@@ -52,8 +74,17 @@ export class RouteSummary {
       document.getElementById('metricExit').textContent = '—';
       document.getElementById('metricSteps').textContent = '—';
     } else {
-      statusBadge.className = 'flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold shadow-sm bg-emerald-500/20 text-emerald-400 border border-emerald-500/40';
-      statusText.textContent = t.status_optimal;
+      if (statusBadge) statusBadge.className = 'flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold shadow-sm bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 flex-shrink-0';
+      if (statusDot) statusDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
+      if (statusText) statusText.textContent = t.status_optimal;
+
+      if (evalBanner && evalIndicator && evalText) {
+        evalBanner.className = 'p-3 rounded-xl bg-slate-900/90 border border-emerald-500/40 mb-3 shadow-lg transition-all duration-200';
+        evalIndicator.className = 'px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+        evalIndicator.textContent = 'OPTIMAL';
+        evalText.className = 'font-mono text-sm sm:text-base font-black text-emerald-300 break-all tracking-wide';
+        evalText.textContent = `${route.path.join(' - ')}; cost ${route.cost}`;
+      }
 
       document.getElementById('metricCost').textContent = route.cost;
       document.getElementById('metricExit').textContent = route.exit;

@@ -1,5 +1,9 @@
 # Smart Escape - Interactive Evacuation Route Simulator
 
+<p align="center">
+  <img src="logo.png" alt="Smart Escape Logo" width="420">
+</p>
+
 > **AI DevFest Solo Mock Test / Practice Challenge**  
 > *Build an interactive map. Compute routes. Respond to changing hazards.*
 
