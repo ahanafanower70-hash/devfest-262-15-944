@@ -1,0 +1,21 @@
+{
+  "name": "devfest-smart-escape",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Smart Escape: Interactive Evacuation Route Simulator - AI DevFest Mock Test Submission",
+  "scripts": {
+    "dev": "python -m http.server 8000",
+    "start": "python -m http.server 8000",
+    "build": "echo 'Client-side zero-build distribution ready in root directory'"
+  },
+  "keywords": [
+    "evacuation-simulator",
+    "dijkstra",
+    "ai-devfest",
+    "interactive-svg",
+    "bilingual"
+  ],
+  "author": "[Your Full Name]",
+  "license": "MIT"
+}

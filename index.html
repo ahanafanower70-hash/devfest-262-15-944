@@ -1,0 +1,2543 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Escape: Interactive Evacuation Route Simulator</title>
+  <meta name="description" content="AI DevFest Smart Escape - Browser-based Interactive Evacuation Route Simulator using Dijkstra's algorithm with dynamic hazard handling.">
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#eff6ff',
+              100: '#dbeafe',
+              500: '#3b82f6',
+              600: '#2563eb',
+              700: '#1d4ed8',
+              900: '#1e3a8a',
+            },
+            hazard: {
+              red: '#ef4444',
+              orange: '#f97316',
+              yellow: '#eab308'
+            },
+            node: {
+              room: '#3b82f6',
+              junction: '#8b5cf6',
+              exit: '#10b981'
+            }
+          },
+          fontFamily: {
+            sans: ['Inter', 'Hind Siliguri', 'sans-serif'],
+            bengali: ['Hind Siliguri', 'Inter', 'sans-serif']
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Google Fonts: Inter & Hind Siliguri for Bengali -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+
+  <style>
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.6);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(100, 116, 139, 0.4);
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(148, 163, 184, 0.6);
+    }
+
+    /* Animated dash line for active route */
+    @keyframes dashflow {
+      to {
+        stroke-dashoffset: -32;
+      }
+    }
+    .route-active-dash {
+      stroke-dasharray: 10, 6;
+      animation: dashflow 1s linear infinite;
+    }
+    .route-pulse-glow {
+      filter: drop-shadow(0 0 8px rgba(16, 185, 129, 0.75));
+    }
+    .route-pulse-glow-alt {
+      filter: drop-shadow(0 0 6px rgba(59, 130, 246, 0.6));
+    }
+
+    /* Pulsing Start Beacon */
+    @keyframes beacon-ping {
+      0% {
+        r: 22;
+        opacity: 0.8;
+      }
+      100% {
+        r: 38;
+        opacity: 0;
+      }
+    }
+    .beacon-pulse {
+      animation: beacon-ping 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
+    }
+
+    /* Node Hover & Selection Transitions */
+    .map-node {
+      transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.2s ease;
+      cursor: pointer;
+    }
+    .map-node:hover {
+      filter: brightness(1.2) drop-shadow(0 0 10px rgba(59, 130, 246, 0.6));
+    }
+
+    /* Edge Interactive Hover */
+    .map-edge-group {
+      cursor: pointer;
+    }
+    .map-edge-group:hover .map-edge-line {
+      stroke-width: 4.5px;
+      stroke: #60a5fa !important;
+    }
+    .map-edge-group:hover .cost-badge-rect {
+      stroke: #60a5fa;
+      stroke-width: 2px;
+      transform: scale(1.15);
+      transform-origin: center;
+    }
+
+    /* High Contrast Mode Overrides */
+    .high-contrast {
+      --tw-bg-opacity: 1 !important;
+      background-color: #000000 !important;
+      color: #ffffff !important;
+    }
+    .high-contrast .glass-panel {
+      background: #0a0a0a !important;
+      border-color: #ffffff !important;
+      box-shadow: 0 0 0 2px #ffffff !important;
+    }
+    .high-contrast text {
+      fill: #ffffff !important;
+      font-weight: 700 !important;
+    }
+    .high-contrast .high-contrast-border {
+      border-color: #ffffff !important;
+    }
+
+    /* SVG Canvas Grid Pattern */
+    .bg-grid {
+      background-size: 24px 24px;
+      background-image: 
+        radial-gradient(circle, rgba(148, 163, 184, 0.12) 1px, transparent 1px);
+    }
+    .dark .bg-grid {
+      background-image: 
+        radial-gradient(circle, rgba(255, 255, 255, 0.08) 1.2px, transparent 1.2px);
+    }
+
+    /* Walkthrough Evacuee Marker */
+    .evacuee-marker {
+      transition: cx 0.4s ease-out, cy 0.4s ease-out;
+      filter: drop-shadow(0 0 12px #f59e0b);
+    }
+
+    /* Glassmorphism Classes */
+    .glass-panel {
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .glass-card {
+      background: rgba(30, 41, 59, 0.6);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans antialiased min-h-screen flex flex-col selection:bg-brand-500 selection:text-white">
+
+  <!-- Top Navigation Header -->
+  <header class="glass-panel sticky top-0 z-50 px-4 lg:px-6 py-2.5 flex flex-wrap items-center justify-between gap-3 border-b border-slate-800">
+    <!-- Brand / Title -->
+    <div class="flex items-center gap-3">
+      <div class="relative flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 via-indigo-600 to-emerald-500 shadow-lg shadow-brand-500/20 ring-1 ring-white/20">
+        <svg class="w-6 h-6 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          <path d="m9 12 2 2 4-4"/>
+        </svg>
+        <span class="absolute -top-1 -right-1 flex h-3 w-3">
+          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+          <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+        </span>
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="font-extrabold text-base lg:text-lg tracking-tight bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent" data-i18n="app_title">
+            Smart Escape
+          </h1>
+          <span class="hidden sm:inline-block text-[10px] font-semibold tracking-wider uppercase px-2 py-0.5 rounded-full bg-brand-500/10 text-brand-400 border border-brand-500/20" data-i18n="app_badge">
+            SIMULATOR
+          </span>
+          <span id="buildingNameTag" class="text-xs font-mono font-medium px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-slate-700/50">
+            Main Office Complex
+          </span>
+        </div>
+        <p class="text-xs text-slate-400 hidden md:block" data-i18n="app_subtitle">
+          BUILD AN INTERACTIVE MAP. COMPUTE ROUTES. RESPOND TO CHANGING HAZARDS.
+        </p>
+      </div>
+    </div>
+
+    <!-- Quick Status Badges -->
+    <div class="hidden xl:flex items-center gap-4 text-xs font-mono">
+      <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-900/80 border border-slate-800 text-slate-300">
+        <span class="w-2 h-2 rounded-full bg-blue-400"></span>
+        <span data-i18n="stat_nodes">Nodes</span>: <span id="statNodeCount" class="font-bold text-white">8</span>
+      </div>
+      <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-900/80 border border-slate-800 text-slate-300">
+        <span class="w-2 h-2 rounded-full bg-indigo-400"></span>
+        <span data-i18n="stat_corridors">Corridors</span>: <span id="statEdgeCount" class="font-bold text-white">8</span>
+      </div>
+      <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-900/80 border border-slate-800 text-slate-300">
+        <span class="w-2 h-2 rounded-full bg-rose-500"></span>
+        <span data-i18n="stat_hazards">Active Hazards</span>: <span id="statHazardCount" class="font-bold text-rose-400">0</span>
+      </div>
+    </div>
+
+    <!-- Header Actions & Controls -->
+    <div class="flex items-center gap-2">
+      <!-- Test Cases Modal Button -->
+      <button id="btnOpenTests" class="px-2.5 py-1.5 text-xs font-medium rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 transition flex items-center gap-1.5">
+        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 2v6h6"/><path d="M4 12V4a2 2 0 0 1 2-2h8.5L20 7.5V20a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8"/><circle cx="10" cy="14" r="2"/></svg>
+        <span data-i18n="btn_test_suite">Test Checks</span>
+      </button>
+
+      <!-- Reset Hazards Button -->
+      <button id="btnResetHazards" class="px-2.5 py-1.5 text-xs font-medium rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 transition flex items-center gap-1.5" title="Restore original initial_state">
+        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+        <span data-i18n="btn_reset">Reset Hazards</span>
+      </button>
+
+      <!-- Import JSON Button -->
+      <label class="px-2.5 py-1.5 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition flex items-center gap-1.5 cursor-pointer">
+        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <span data-i18n="btn_import">Import JSON</span>
+        <input type="file" id="fileUploadInput" accept=".json,application/json" class="hidden">
+      </label>
+
+      <!-- Export Dropdown -->
+      <div class="relative inline-block text-left" id="exportDropdownContainer">
+        <button id="btnExportMenu" class="px-2.5 py-1.5 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition flex items-center gap-1.5">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span data-i18n="btn_export">Export</span>
+        </button>
+        <div id="exportMenu" class="hidden absolute right-0 mt-1 w-44 rounded-lg bg-slate-900 border border-slate-700 shadow-xl py-1 z-50 text-xs">
+          <button id="btnExportPng" class="w-full text-left px-3 py-2 hover:bg-slate-800 text-slate-300 flex items-center gap-2">
+            <svg class="w-4 h-4 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+            <span data-i18n="export_png">Export as PNG</span>
+          </button>
+          <button id="btnExportSvg" class="w-full text-left px-3 py-2 hover:bg-slate-800 text-slate-300 flex items-center gap-2">
+            <svg class="w-4 h-4 text-cyan-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+            <span data-i18n="export_svg">Export as SVG</span>
+          </button>
+          <button id="btnExportJson" class="w-full text-left px-3 py-2 hover:bg-slate-800 text-slate-300 flex items-center gap-2 border-t border-slate-800">
+            <svg class="w-4 h-4 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            <span data-i18n="export_json">Export State JSON</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- High Contrast Toggle -->
+      <button id="btnHighContrast" class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition" title="Toggle High Contrast Mode">
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2v20M12 2a10 10 0 0 1 0 20"/></svg>
+      </button>
+
+      <!-- Language Switcher Toggle -->
+      <div class="flex items-center rounded-lg bg-slate-900 border border-slate-700 p-0.5">
+        <button id="langEnBtn" class="px-2 py-1 text-xs font-semibold rounded transition bg-brand-600 text-white">
+          EN
+        </button>
+        <button id="langBnBtn" class="px-2 py-1 text-xs font-semibold rounded transition text-slate-400 hover:text-white">
+          বাংলা
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Error / Notification Banner Container -->
+  <div id="alertContainer" class="px-4 lg:px-6 pt-3 space-y-2 empty:hidden"></div>
+
+  <!-- Main Application Body -->
+  <main class="flex-1 px-4 lg:px-6 py-4 flex flex-col lg:flex-row gap-4 overflow-hidden">
+    
+    <!-- LEFT: Interactive Map Canvas Area -->
+    <section class="flex-1 flex flex-col rounded-2xl glass-panel relative overflow-hidden min-h-[500px] border border-slate-800 shadow-2xl">
+      
+      <!-- Canvas Overlay Controls Bar -->
+      <div class="absolute top-3 left-3 z-10 flex flex-wrap items-center gap-2 bg-slate-900/90 backdrop-blur-md p-1.5 rounded-xl border border-slate-700/80 shadow-lg text-xs">
+        
+        <!-- Canvas Mode Selector -->
+        <span class="text-[11px] font-medium text-slate-400 pl-1" data-i18n="mode_label">Click Action:</span>
+        <div class="flex rounded-lg bg-slate-800 p-0.5 border border-slate-700">
+          <button id="modeSelectStart" class="px-2.5 py-1 rounded-md text-xs font-medium transition bg-brand-600 text-white shadow-sm flex items-center gap-1">
+            <span class="w-2 h-2 rounded-full bg-cyan-300"></span>
+            <span data-i18n="mode_set_start">Set Start</span>
+          </button>
+          <button id="modeToggleHazard" class="px-2.5 py-1 rounded-md text-xs font-medium transition text-slate-300 hover:text-white flex items-center gap-1">
+            <span class="w-2 h-2 rounded-full bg-rose-500"></span>
+            <span data-i18n="mode_toggle_hazard">Toggle Hazard</span>
+          </button>
+        </div>
+
+        <div class="h-4 w-px bg-slate-700 my-auto"></div>
+
+        <!-- Start Node Indicator -->
+        <div class="flex items-center gap-1.5 px-2 py-1 rounded-md bg-slate-800 text-slate-200">
+          <span class="text-slate-400" data-i18n="start_label">Start:</span>
+          <span id="activeStartBadge" class="font-mono font-bold text-brand-400">R1</span>
+        </div>
+      </div>
+
+      <!-- Canvas Zoom / Pan Controls (Top-Right) -->
+      <div class="absolute top-3 right-3 z-10 flex items-center gap-1 bg-slate-900/90 backdrop-blur-md p-1 rounded-xl border border-slate-700/80 shadow-lg text-xs">
+        <button id="btnZoomIn" class="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center font-bold" title="Zoom In">+</button>
+        <button id="btnZoomOut" class="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center font-bold" title="Zoom Out">−</button>
+        <button id="btnZoomReset" class="px-2 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center text-[11px]" title="Reset View" data-i18n="btn_fit">Fit</button>
+      </div>
+
+      <!-- Evacuation Walkthrough Player Bar (Bottom-Left) -->
+      <div id="simulationBar" class="absolute bottom-3 left-3 z-10 flex items-center gap-2 bg-slate-900/90 backdrop-blur-md p-2 rounded-xl border border-slate-700/80 shadow-lg text-xs">
+        <button id="btnPlaySim" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold flex items-center gap-1.5 transition">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          <span id="simPlayText" data-i18n="sim_play">Simulate Route</span>
+        </button>
+        <button id="btnResetSim" class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300" title="Reset Simulation">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+        </button>
+        <div class="flex items-center gap-1 text-[11px] text-slate-400 pl-1">
+          <span data-i18n="speed_label">Speed:</span>
+          <select id="simSpeedSelect" class="bg-slate-800 text-slate-200 rounded px-1.5 py-0.5 border border-slate-700 text-xs">
+            <option value="1">1x</option>
+            <option value="1.75" selected>1.75x</option>
+            <option value="3">3x</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Map Legend (Bottom-Right) -->
+      <div class="absolute bottom-3 right-3 z-10 hidden sm:flex items-center gap-3 bg-slate-900/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-700/80 shadow-lg text-[11px]">
+        <div class="flex items-center gap-1.5 text-slate-300">
+          <span class="w-2.5 h-2.5 rounded-full bg-blue-500 ring-2 ring-blue-500/20"></span>
+          <span data-i18n="legend_room">Room</span>
+        </div>
+        <div class="flex items-center gap-1.5 text-slate-300">
+          <span class="w-2.5 h-2.5 rounded-full bg-purple-500 ring-2 ring-purple-500/20"></span>
+          <span data-i18n="legend_junction">Junction</span>
+        </div>
+        <div class="flex items-center gap-1.5 text-slate-300">
+          <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20"></span>
+          <span data-i18n="legend_exit">Exit</span>
+        </div>
+        <div class="flex items-center gap-1.5 text-slate-300">
+          <span class="w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-rose-500/20"></span>
+          <span data-i18n="legend_hazard">Hazard</span>
+        </div>
+      </div>
+
+      <!-- Interactive SVG Canvas Area -->
+      <div id="svgContainer" class="w-full h-full flex-1 bg-grid cursor-grab active:cursor-grabbing select-none relative overflow-hidden">
+        <svg id="mapSvg" class="w-full h-full overflow-visible" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <!-- Marker Arrows for Active Route -->
+            <marker id="routeArrow" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto">
+              <path d="M 0 0 L 6 3 L 0 6 z" fill="#10B981" />
+            </marker>
+            <!-- Marker Arrow for Alternative Route -->
+            <marker id="altRouteArrow" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto">
+              <path d="M 0 0 L 6 3 L 0 6 z" fill="#3B82F6" />
+            </marker>
+
+            <!-- Glow Filters -->
+            <filter id="glowGreen" x="-20%" y="-20%" width="140%" height="140%">
+              <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#10B981" flood-opacity="0.8"/>
+            </filter>
+            <filter id="glowBlue" x="-20%" y="-20%" width="140%" height="140%">
+              <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#3B82F6" flood-opacity="0.7"/>
+            </filter>
+            <filter id="glowRed" x="-20%" y="-20%" width="140%" height="140%">
+              <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#EF4444" flood-opacity="0.8"/>
+            </filter>
+            <filter id="glowGold" x="-20%" y="-20%" width="140%" height="140%">
+              <feDropShadow dx="0" dy="0" stdDeviation="6" flood-color="#F59E0B" flood-opacity="0.9"/>
+            </filter>
+          </defs>
+
+          <!-- SVG Pan/Zoom Master Group -->
+          <g id="viewportGroup">
+            <!-- Layer 1: Edges / Corridors -->
+            <g id="edgesLayer"></g>
+            <!-- Layer 2: Active & Alternate Routes Highlight -->
+            <g id="routeHighlightLayer"></g>
+            <!-- Layer 3: Edge Cost Badges -->
+            <g id="edgeBadgesLayer"></g>
+            <!-- Layer 4: Nodes -->
+            <g id="nodesLayer"></g>
+            <!-- Layer 5: Simulation Animated Avatar Marker -->
+            <g id="simulationLayer"></g>
+          </g>
+        </svg>
+
+        <!-- Floating Quick Action Popover / Tooltip on Canvas -->
+        <div id="nodePopover" class="hidden absolute pointer-events-auto z-30 p-2.5 rounded-xl bg-slate-900/95 border border-slate-700 shadow-2xl backdrop-blur-md text-xs w-48 transition-all duration-150">
+          <div class="flex items-center justify-between pb-1.5 mb-1.5 border-b border-slate-800">
+            <span id="popoverTitle" class="font-bold text-white">Node Info</span>
+            <span id="popoverType" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">Room</span>
+          </div>
+          <p id="popoverLabel" class="text-slate-400 text-[11px] mb-2">Label: Room 1</p>
+          <div class="flex flex-col gap-1.5">
+            <button id="popoverBtnSetStart" class="w-full py-1 px-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-white font-semibold text-center transition" data-i18n="btn_popover_start">
+              Set as Start
+            </button>
+            <button id="popoverBtnToggleHazard" class="w-full py-1 px-2 rounded-lg bg-rose-600/30 hover:bg-rose-600/50 text-rose-300 border border-rose-500/40 text-center transition" data-i18n="btn_popover_hazard">
+              Toggle Blocked
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- RIGHT: Control Panel & Status Sidebar -->
+    <aside class="w-full lg:w-[420px] flex flex-col gap-3.5 overflow-y-auto max-h-[calc(100vh-80px)] pr-1">
+      
+      <!-- CARD 1: Route Status & Evacuation Summary -->
+      <div class="rounded-2xl glass-panel p-4 border border-slate-800 shadow-xl relative overflow-hidden">
+        
+        <!-- Status Indicator Pill Header -->
+        <div class="flex items-center justify-between gap-2 mb-3">
+          <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400" data-i18n="section_route_status">
+            Route Status
+          </h2>
+          <div id="routeStatusBadge" class="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold shadow-sm bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span id="routeStatusText" data-i18n="status_optimal">OPTIMAL ROUTE FOUND</span>
+          </div>
+        </div>
+
+        <!-- Failure Warning Banners (when start blocked or no route) -->
+        <div id="statusAlertBox" class="hidden mb-3 p-3 rounded-xl border text-xs">
+          <!-- Dynamically inserted warning -->
+        </div>
+
+        <!-- Route Metrics Summary Grid -->
+        <div id="metricsGrid" class="grid grid-cols-3 gap-2.5 mb-3">
+          <div class="glass-card p-2.5 rounded-xl border border-slate-800 text-center">
+            <span class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider" data-i18n="metric_cost">Total Cost</span>
+            <span id="metricCost" class="text-xl font-black text-emerald-400 font-mono">7</span>
+          </div>
+          <div class="glass-card p-2.5 rounded-xl border border-slate-800 text-center">
+            <span class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider" data-i18n="metric_exit">Target Exit</span>
+            <span id="metricExit" class="text-xl font-black text-emerald-400 font-mono">E1</span>
+          </div>
+          <div class="glass-card p-2.5 rounded-xl border border-slate-800 text-center">
+            <span class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider" data-i18n="metric_steps">Corridors</span>
+            <span id="metricSteps" class="text-xl font-black text-cyan-400 font-mono">3</span>
+          </div>
+        </div>
+
+        <!-- Calculated Path Sequence Display -->
+        <div class="space-y-1.5 mb-3">
+          <div class="flex items-center justify-between text-xs">
+            <span class="text-slate-400 font-medium" data-i18n="path_sequence">Path Sequence:</span>
+            <span id="pathLengthBadge" class="text-[11px] font-mono text-slate-400">4 nodes</span>
+          </div>
+          <div id="pathBreadcrumbs" class="flex flex-wrap items-center gap-1.5 p-2 rounded-xl bg-slate-900/80 border border-slate-800 text-xs font-mono min-h-[42px]">
+            <!-- Rendered badges: R1 -> C1 -> C2 -> E1 -->
+          </div>
+        </div>
+
+        <!-- Step-by-Step Directions Accordion / List -->
+        <details class="group text-xs bg-slate-900/60 rounded-xl border border-slate-800 p-2.5">
+          <summary class="cursor-pointer font-semibold text-slate-300 flex items-center justify-between list-none">
+            <span class="flex items-center gap-1.5">
+              <svg class="w-3.5 h-3.5 text-brand-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+              <span data-i18n="step_directions">Turn-by-Turn Guidance</span>
+            </span>
+            <span class="text-[10px] text-slate-400 group-open:rotate-90 transition-transform">&#9656;</span>
+          </summary>
+          <div id="turnByTurnList" class="mt-2.5 space-y-1.5 pl-2 border-l border-slate-700/60 text-slate-300">
+            <!-- Populated via JS -->
+          </div>
+        </details>
+
+        <!-- Alternative Route (if available) -->
+        <div id="altRouteContainer" class="mt-3 p-2.5 rounded-xl bg-slate-900/50 border border-slate-800/80 text-xs hidden">
+          <div class="flex items-center justify-between text-slate-400 mb-1">
+            <span class="font-semibold text-blue-400 flex items-center gap-1" data-i18n="alt_route_title">
+              <span class="w-2 h-2 rounded-full bg-blue-400"></span>
+              Alternative Route:
+            </span>
+            <span id="altRouteCost" class="font-mono text-blue-300 font-bold">Cost: 11</span>
+          </div>
+          <div id="altRoutePath" class="text-slate-300 font-mono text-[11px] truncate">
+            R1 &rarr; C1 &rarr; C3 &rarr; C4 &rarr; E2
+          </div>
+        </div>
+
+      </div>
+
+      <!-- CARD 2: Start Location Quick Picker -->
+      <div class="rounded-2xl glass-panel p-4 border border-slate-800 shadow-xl">
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400" data-i18n="section_start_location">
+            Select Start Location
+          </h2>
+          <span class="text-[10px] text-slate-400" data-i18n="start_picker_hint">Click node on map or choose below</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <select id="startNodeSelect" class="flex-1 rounded-xl bg-slate-900 border border-slate-700 text-slate-200 text-xs px-3 py-2 font-medium focus:outline-none focus:ring-2 focus:ring-brand-500">
+            <!-- Node options -->
+          </select>
+        </div>
+      </div>
+
+      <!-- CARD 3: Hazard Management Controls -->
+      <div class="rounded-2xl glass-panel p-4 border border-slate-800 shadow-xl flex-1 flex flex-col">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400" data-i18n="section_hazards">
+            Hazard Manager
+          </h2>
+          <div class="flex items-center gap-1.5">
+            <button id="btnClearAllHazards" class="text-[11px] px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition" data-i18n="btn_clear_hazards">
+              Clear All
+            </button>
+            <button id="btnRestoreInitial" class="text-[11px] px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 transition" data-i18n="btn_restore_initial">
+              Restore File State
+            </button>
+          </div>
+        </div>
+
+        <!-- Hazard Category Tabs -->
+        <div class="flex rounded-xl bg-slate-900 p-1 border border-slate-800 mb-3 text-xs">
+          <button id="tabHazardAll" class="flex-1 py-1 rounded-lg font-medium transition bg-slate-800 text-white shadow-sm" data-i18n="tab_all">
+            All
+          </button>
+          <button id="tabHazardNodes" class="flex-1 py-1 rounded-lg font-medium transition text-slate-400 hover:text-slate-200" data-i18n="tab_nodes">
+            Rooms/Junctions
+          </button>
+          <button id="tabHazardEdges" class="flex-1 py-1 rounded-lg font-medium transition text-slate-400 hover:text-slate-200" data-i18n="tab_corridors">
+            Corridors
+          </button>
+          <button id="tabHazardExits" class="flex-1 py-1 rounded-lg font-medium transition text-slate-400 hover:text-slate-200" data-i18n="tab_exits">
+            Exits
+          </button>
+        </div>
+
+        <!-- Quick Search Filter -->
+        <div class="relative mb-2.5">
+          <input type="text" id="hazardSearchInput" placeholder="Filter hazards by ID or label..." class="w-full rounded-xl bg-slate-900/90 border border-slate-700/80 text-xs px-3 py-1.5 pl-8 text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-brand-500">
+          <svg class="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        </div>
+
+        <!-- Scrollable Hazard Toggle List -->
+        <div id="hazardListContainer" class="flex-1 overflow-y-auto max-h-72 space-y-1.5 pr-1">
+          <!-- Dynamically populated hazard items with toggle switches -->
+        </div>
+
+      </div>
+
+    </aside>
+
+  </main>
+
+  <!-- Competition Test Runner Modal -->
+  <div id="testRunnerModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+    <div class="glass-panel w-full max-w-2xl rounded-2xl border border-slate-700 shadow-2xl p-5 relative">
+      <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-800">
+        <div>
+          <h3 class="text-base font-bold text-white flex items-center gap-2" data-i18n="modal_test_title">
+            <svg class="w-5 h-5 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 2v6h6"/><path d="M4 12V4a2 2 0 0 1 2-2h8.5L20 7.5V20a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8"/><circle cx="10" cy="14" r="2"/></svg>
+            AI DevFest Rulebook Section 4.1 Sample Checks
+          </h3>
+          <p class="text-xs text-slate-400" data-i18n="modal_test_desc">
+            Deterministic verification suite against competition specification scenarios.
+          </p>
+        </div>
+        <button id="btnCloseTests" class="p-1 rounded-lg text-slate-400 hover:text-white bg-slate-800/80 hover:bg-slate-700">
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <!-- Action buttons -->
+      <div class="flex items-center justify-between mb-4">
+        <button id="btnRunAllTests" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center gap-2 transition shadow-lg shadow-indigo-600/30">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          <span data-i18n="btn_run_audit">Run All Automated Checks</span>
+        </button>
+        <span id="testSummaryBadge" class="text-xs font-mono font-semibold px-3 py-1 rounded-full bg-slate-800 text-slate-300">
+          5 Scenarios
+        </span>
+      </div>
+
+      <!-- Test Cases Table -->
+      <div class="overflow-x-auto rounded-xl border border-slate-800">
+        <table class="w-full text-xs text-left">
+          <thead class="bg-slate-900/90 text-slate-400 uppercase text-[10px] font-mono border-b border-slate-800">
+            <tr>
+              <th class="p-2.5">Scenario</th>
+              <th class="p-2.5">Action</th>
+              <th class="p-2.5">Expected Result</th>
+              <th class="p-2.5">Actual Result</th>
+              <th class="p-2.5 text-center">Status</th>
+              <th class="p-2.5 text-center">Apply</th>
+            </tr>
+          </thead>
+          <tbody id="testTableBody" class="divide-y divide-slate-800 text-slate-300 font-mono">
+            <!-- Rendered by JS -->
+          </tbody>
+        </table>
+      </div>
+
+      <div class="mt-4 pt-3 border-t border-slate-800 flex justify-between items-center text-xs text-slate-400">
+        <span>Click "Apply" to immediately simulate that scenario on the interactive map canvas.</span>
+        <button id="btnCloseTests2" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer / Status Bar -->
+  <footer class="glass-panel px-4 lg:px-6 py-2 border-t border-slate-800/80 text-[11px] text-slate-400 flex flex-wrap items-center justify-between gap-2">
+    <div class="flex items-center gap-2">
+      <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+      <span data-i18n="footer_status">Client-side Dijkstra Engine Active • Deterministic Tie-Breaking (Cost &rarr; Exit ID &rarr; Node Sequence)</span>
+    </div>
+    <div class="flex items-center gap-3">
+      <span>AI DevFest Mock Test • Solo 90-min Challenge</span>
+      <a href="https://github.com" target="_blank" class="hover:text-slate-200 transition">Smart Escape v1.0</a>
+    </div>
+  </footer>
+
+  <!-- Core JavaScript Application Logic -->
+  <script>
+    /**
+     * Smart Escape: Interactive Evacuation Route Simulator
+     * Complete Production-grade Implementation
+     */
+
+    // --- 1. DEFAULT DATASET (Matches Section 6) ---
+    const DEFAULT_BUILDING_DATA = {
+      "building": "Main Office Complex",
+      "nodes": [
+        {"id": "R1", "label": "Room 1", "type": "room", "x": 50, "y": 100},
+        {"id": "R2", "label": "Room 2", "type": "room", "x": 50, "y": 300},
+        {"id": "C1", "label": "Corridor 1", "type": "junction", "x": 200, "y": 100},
+        {"id": "C2", "label": "Corridor 2", "type": "junction", "x": 350, "y": 100},
+        {"id": "C3", "label": "Corridor 3", "type": "junction", "x": 200, "y": 300},
+        {"id": "C4", "label": "Corridor 4", "type": "junction", "x": 350, "y": 300},
+        {"id": "E1", "label": "Exit 1", "type": "exit", "x": 500, "y": 100},
+        {"id": "E2", "label": "Exit 2", "type": "exit", "x": 500, "y": 300}
+      ],
+      "edges": [
+        {"id": "e1", "from": "R1", "to": "C1", "cost": 2},
+        {"id": "e2", "from": "C1", "to": "C2", "cost": 3},
+        {"id": "e3", "from": "C2", "to": "E1", "cost": 2},
+        {"id": "e4", "from": "R2", "to": "C3", "cost": 2},
+        {"id": "e5", "from": "C1", "to": "C3", "cost": 2},
+        {"id": "e6", "from": "C3", "to": "C4", "cost": 3},
+        {"id": "e7", "from": "C4", "to": "E2", "cost": 2},
+        {"id": "e8", "from": "C2", "to": "C4", "cost": 5}
+      ],
+      "initial_state": {
+        "blocked_nodes": [],
+        "blocked_edges": [],
+        "closed_exits": []
+      }
+    };
+
+    // --- 2. BILINGUAL DICTIONARY (English & Bangla) ---
+    const TRANSLATIONS = {
+      en: {
+        app_title: "Smart Escape",
+        app_badge: "SIMULATOR",
+        app_subtitle: "BUILD AN INTERACTIVE MAP. COMPUTE ROUTES. RESPOND TO CHANGING HAZARDS.",
+        stat_nodes: "Nodes",
+        stat_corridors: "Corridors",
+        stat_hazards: "Active Hazards",
+        btn_test_suite: "Test Checks",
+        btn_reset: "Reset Hazards",
+        btn_import: "Import JSON",
+        btn_export: "Export",
+        export_png: "Export as PNG",
+        export_svg: "Export as SVG",
+        export_json: "Export State JSON",
+        mode_label: "Click Action:",
+        mode_set_start: "Set Start",
+        mode_toggle_hazard: "Toggle Hazard",
+        start_label: "Start:",
+        btn_fit: "Fit",
+        sim_play: "Simulate Route",
+        sim_pause: "Pause Simulation",
+        speed_label: "Speed:",
+        legend_room: "Room",
+        legend_junction: "Junction",
+        legend_exit: "Exit",
+        legend_hazard: "Hazard",
+        btn_popover_start: "Set as Start",
+        btn_popover_hazard: "Toggle Blocked",
+        section_route_status: "Route Status",
+        status_optimal: "OPTIMAL ROUTE FOUND",
+        status_start_blocked: "Starting location blocked",
+        status_no_route: "No route available",
+        metric_cost: "Total Cost",
+        metric_exit: "Target Exit",
+        metric_steps: "Corridors",
+        path_sequence: "Path Sequence:",
+        step_directions: "Turn-by-Turn Guidance",
+        alt_route_title: "Alternative Route:",
+        section_start_location: "Select Start Location",
+        start_picker_hint: "Click node on map or choose below",
+        section_hazards: "Hazard Manager",
+        btn_clear_hazards: "Clear All",
+        btn_restore_initial: "Restore File State",
+        tab_all: "All",
+        tab_nodes: "Rooms/Junctions",
+        tab_corridors: "Corridors",
+        tab_exits: "Exits",
+        modal_test_title: "AI DevFest Rulebook Section 4.1 Sample Checks",
+        modal_test_desc: "Deterministic verification suite against competition specification scenarios.",
+        btn_run_audit: "Run All Automated Checks",
+        footer_status: "Client-side Dijkstra Engine Active • Deterministic Tie-Breaking (Cost → Exit ID → Node Sequence)",
+        alert_json_success: "Building configuration imported successfully.",
+        alert_invalid_json: "Failed to parse JSON file.",
+        err_building_required: "'building' name must be a non-empty string.",
+        err_nodes_count: "'nodes' array must contain between 2 and 60 objects.",
+        err_node_room_or_junction: "Graph must contain at least one room or junction.",
+        err_node_exit_required: "Graph must contain at least one exit.",
+        err_node_duplicate_id: "Duplicate node ID found: ",
+        err_node_invalid_type: "Node has invalid type (must be room, junction, or exit): ",
+        err_node_invalid_coords: "Node has non-numeric coordinates: ",
+        err_edges_count: "'edges' array must contain between 1 and 150 objects.",
+        err_edge_duplicate_id: "Duplicate edge ID found: ",
+        err_edge_unknown_node: "Edge references non-existent node: ",
+        err_edge_self_loop: "Self-loop edge detected (from and to cannot be identical): ",
+        err_edge_duplicate_pair: "Duplicate undirected edge pair between nodes: ",
+        err_edge_cost_invalid: "Edge cost must be a positive integer (> 0): ",
+        err_initial_state_invalid: "'initial_state' must be an object with blocked_nodes, blocked_edges, and closed_exits arrays.",
+        err_initial_state_unknown: "initial_state references unknown ID: ",
+        err_initial_state_type: "initial_state category mismatch: "
+      },
+      bn: {
+        app_title: "স্মার্ট এস্কেপ",
+        app_badge: "সিমুলেটর",
+        app_subtitle: "ইন্টারঅ্যাক্টিভ ম্যাপ তৈরি করুন। রুট গণনা করুন। পরিবর্তিত দুর্যোগ মোকাবেলা করুন।",
+        stat_nodes: "নোডসমূহ",
+        stat_corridors: "করিডোরসমূহ",
+        stat_hazards: "সক্রিয় হ্যাজার্ড",
+        btn_test_suite: "টেস্ট চেক",
+        btn_reset: "হ্যাজার্ড রিসেট",
+        btn_import: "JSON ইম্পোর্ট",
+        btn_export: "এক্সপোর্ট",
+        export_png: "PNG হিসেবে এক্সপোর্ট",
+        export_svg: "SVG হিসেবে এক্সপোর্ট",
+        export_json: "JSON হিসেবে এক্সপোর্ট",
+        mode_label: "ক্লিক অ্যাকশন:",
+        mode_set_start: "শুরু নির্ধারণ",
+        mode_toggle_hazard: "হ্যাজার্ড টগল",
+        start_label: "শুরু:",
+        btn_fit: "ফিট",
+        sim_play: "রুট সিমুলেশন",
+        sim_pause: "পজ করুন",
+        speed_label: "গতি:",
+        legend_room: "রুম",
+        legend_junction: "জাংশন",
+        legend_exit: "প্রস্থান",
+        legend_hazard: "বিপদ/অবরোধ",
+        btn_popover_start: "শুরু হিসেবে নিন",
+        btn_popover_hazard: "টগল ব্লক",
+        section_route_status: "রুটের অবস্থা",
+        status_optimal: "সর্বোত্তম রুট পাওয়া গেছে",
+        status_start_blocked: "Starting location blocked",
+        status_no_route: "No route available",
+        metric_cost: "মোট খরচ",
+        metric_exit: "গন্তব্য প্রস্থান",
+        metric_steps: "করিডোর সংখ্যা",
+        path_sequence: "পথের ক্রম:",
+        step_directions: "ধাপে ধাপে দিকনির্দেশনা",
+        alt_route_title: "বিকল্প রুট:",
+        section_start_location: "শুরুর অবস্থান নির্বাচন",
+        start_picker_hint: "ম্যাপের নোডে ক্লিক করুন অথবা নিচে বাছুন",
+        section_hazards: "হ্যাজার্ড ব্যবস্থাপনা",
+        btn_clear_hazards: "সব মুছুন",
+        btn_restore_initial: "ফাইলের অবস্থা পুনরুদ্ধার",
+        tab_all: "সকল",
+        tab_nodes: "রুম/জাংশন",
+        tab_corridors: "করিডোর",
+        tab_exits: "প্রস্থান",
+        modal_test_title: "এআই ডেভফেস্ট রুলবুক সেকশন ৪.১ স্যাম্পল চেক",
+        modal_test_desc: "প্রতিযোগিতার স্পেসিফিকেশন অনুযায়ী নিশ্চিতকরণ টেস্ট স্যুট।",
+        btn_run_audit: "সকল অটোমেটেড টেস্ট চালান",
+        footer_status: "ক্লায়েন্ট-সাইড ডিজকস্ট্রা ইঞ্জিন সক্রিয় • সুনির্দিষ্ট টাই-ব্রেকিং (খরচ → প্রস্থান আইডি → নোড ক্রম)",
+        alert_json_success: "বিল্ডিং কনফিগারেশন সফলভাবে ইম্পোর্ট হয়েছে।",
+        alert_invalid_json: "JSON ফাইলটি পার্স করা সম্ভব হয়নি।",
+        err_building_required: "'building' নামটি খালি রাখা যাবে না।",
+        err_nodes_count: "'nodes' তালিকায় ২ থেকে ৬০টি অবজেক্ট থাকতে হবে।",
+        err_node_room_or_junction: "গ্রাফে অন্তত একটি রুম বা জাংশন থাকতে হবে।",
+        err_node_exit_required: "গ্রাফে অন্তত একটি প্রস্থান (exit) থাকতে হবে।",
+        err_node_duplicate_id: "অনুরূপ নোড আইডি পাওয়া গেছে: ",
+        err_node_invalid_type: "নোডের ধরনটি সঠিক নয় (room, junction, বা exit হতে হবে): ",
+        err_node_invalid_coords: "নোডের স্থানাঙ্ক সঠিক সংখ্যা নয়: ",
+        err_edges_count: "'edges' তালিকায় ১ থেকে ১৫০টি অবজেক্ট থাকতে হবে।",
+        err_edge_duplicate_id: "অনুরূপ এজ আইডি পাওয়া গেছে: ",
+        err_edge_unknown_node: "এজটিতে অজানা নোড রেফারেন্স রয়েছে: ",
+        err_edge_self_loop: "সেলফ-লুপ এজ পাওয়া গেছে (from এবং to একই হতে পারবে না): ",
+        err_edge_duplicate_pair: "অনুরূপ এজ সংযোগ পাওয়া গেছে: ",
+        err_edge_cost_invalid: "এজের খরচ ধনাত্মক পূর্ণসংখ্যা (> 0) হতে হবে: ",
+        err_initial_state_invalid: "'initial_state' এ blocked_nodes, blocked_edges এবং closed_exits থাকতে হবে।",
+        err_initial_state_unknown: "initial_state এ অজানা আইডি পাওয়া গেছে: ",
+        err_initial_state_type: "initial_state ক্যাটাগরি অমিল: "
+      }
+    };
+
+    // --- 3. APPLICATION STATE ---
+    const State = {
+      language: 'en',
+      highContrast: false,
+      interactionMode: 'start', // 'start' | 'hazard'
+      activeHazardTab: 'all',
+      hazardSearchQuery: '',
+      
+      // Loaded Graph Data
+      buildingData: JSON.parse(JSON.stringify(DEFAULT_BUILDING_DATA)),
+      fileInitialState: JSON.parse(JSON.stringify(DEFAULT_BUILDING_DATA.initial_state)),
+      
+      // Dynamic Hazards
+      blockedNodes: new Set(),
+      blockedEdges: new Set(),
+      closedExits: new Set(),
+      
+      // Active Selection & Routing
+      startNodeId: 'R1',
+      calculatedRoute: null,
+      alternativeRoute: null,
+      
+      // Canvas Transform
+      panX: 0,
+      panY: 0,
+      zoom: 1,
+      isPanning: false,
+      lastMouseX: 0,
+      lastMouseY: 0,
+      
+      // Walkthrough Simulator
+      simulating: false,
+      simStepIndex: 0,
+      simTimer: null,
+      simSpeed: 1.75
+    };
+
+    // --- 4. JSON SCHEMA VALIDATION (Sections 2 & 3.1) ---
+    function validateBuildingJson(data) {
+      const errors = [];
+      const t = TRANSLATIONS[State.language];
+
+      if (!data || typeof data !== 'object') {
+        return { valid: false, errors: ['JSON root must be an object.'] };
+      }
+
+      // 1. building name
+      if (typeof data.building !== 'string' || data.building.trim() === '') {
+        errors.push(t.err_building_required);
+      }
+
+      // 2. nodes array
+      if (!Array.isArray(data.nodes) || data.nodes.length < 2 || data.nodes.length > 60) {
+        errors.push(t.err_nodes_count);
+      } else {
+        const nodeIds = new Set();
+        let hasRoomOrJunction = false;
+        let hasExit = false;
+
+        data.nodes.forEach((node, idx) => {
+          if (!node || typeof node !== 'object') {
+            errors.push(`Node at index ${idx} is not an object.`);
+            return;
+          }
+          if (typeof node.id !== 'string' || node.id.trim() === '') {
+            errors.push(`Node at index ${idx} has missing or empty id.`);
+          } else if (nodeIds.has(node.id)) {
+            errors.push(t.err_node_duplicate_id + node.id);
+          } else {
+            nodeIds.add(node.id);
+          }
+
+          if (typeof node.label !== 'string' || node.label.trim() === '') {
+            errors.push(`Node '${node.id || idx}' has missing or empty label.`);
+          }
+
+          if (!['room', 'junction', 'exit'].includes(node.type)) {
+            errors.push(t.err_node_invalid_type + `${node.id} (${node.type})`);
+          } else {
+            if (node.type === 'room' || node.type === 'junction') hasRoomOrJunction = true;
+            if (node.type === 'exit') hasExit = true;
+          }
+
+          if (typeof node.x !== 'number' || typeof node.y !== 'number' || isNaN(node.x) || isNaN(node.y)) {
+            errors.push(t.err_node_invalid_coords + node.id);
+          }
+        });
+
+        if (!hasRoomOrJunction) errors.push(t.err_node_room_or_junction);
+        if (!hasExit) errors.push(t.err_node_exit_required);
+      }
+
+      // 3. edges array
+      if (!Array.isArray(data.edges) || data.edges.length < 1 || data.edges.length > 150) {
+        errors.push(t.err_edges_count);
+      } else if (Array.isArray(data.nodes)) {
+        const nodeMap = new Map(data.nodes.map(n => [n.id, n]));
+        const edgeIds = new Set();
+        const connectedPairs = new Set();
+
+        data.edges.forEach((edge, idx) => {
+          if (!edge || typeof edge !== 'object') {
+            errors.push(`Edge at index ${idx} is not an object.`);
+            return;
+          }
+          if (typeof edge.id !== 'string' || edge.id.trim() === '') {
+            errors.push(`Edge at index ${idx} has missing or empty id.`);
+          } else if (edgeIds.has(edge.id)) {
+            errors.push(t.err_edge_duplicate_id + edge.id);
+          } else {
+            edgeIds.add(edge.id);
+          }
+
+          if (!nodeMap.has(edge.from)) {
+            errors.push(t.err_edge_unknown_node + `${edge.id} -> from: '${edge.from}'`);
+          }
+          if (!nodeMap.has(edge.to)) {
+            errors.push(t.err_edge_unknown_node + `${edge.id} -> to: '${edge.to}'`);
+          }
+
+          if (edge.from && edge.to && edge.from === edge.to) {
+            errors.push(t.err_edge_self_loop + `${edge.id} (${edge.from})`);
+          }
+
+          // Undirected repeated pair check
+          if (edge.from && edge.to && edge.from !== edge.to) {
+            const pairKey = edge.from < edge.to ? `${edge.from}--${edge.to}` : `${edge.to}--${edge.from}`;
+            if (connectedPairs.has(pairKey)) {
+              errors.push(t.err_edge_duplicate_pair + `(${edge.from}, ${edge.to})`);
+            } else {
+              connectedPairs.add(pairKey);
+            }
+          }
+
+          if (typeof edge.cost !== 'number' || !Number.isInteger(edge.cost) || edge.cost <= 0) {
+            errors.push(t.err_edge_cost_invalid + `${edge.id} (cost: ${edge.cost})`);
+          }
+        });
+      }
+
+      // 4. initial_state validation
+      if (!data.initial_state || typeof data.initial_state !== 'object' ||
+          !Array.isArray(data.initial_state.blocked_nodes) ||
+          !Array.isArray(data.initial_state.blocked_edges) ||
+          !Array.isArray(data.initial_state.closed_exits)) {
+        errors.push(t.err_initial_state_invalid);
+      } else if (Array.isArray(data.nodes) && Array.isArray(data.edges)) {
+        const nodeMap = new Map(data.nodes.map(n => [n.id, n]));
+        const edgeMap = new Map(data.edges.map(e => [e.id, e]));
+
+        data.initial_state.blocked_nodes.forEach(id => {
+          if (!nodeMap.has(id)) {
+            errors.push(t.err_initial_state_unknown + `blocked_nodes: '${id}'`);
+          } else if (nodeMap.get(id).type === 'exit') {
+            errors.push(t.err_initial_state_type + `exit '${id}' cannot be in blocked_nodes`);
+          }
+        });
+
+        data.initial_state.blocked_edges.forEach(id => {
+          if (!edgeMap.has(id)) {
+            errors.push(t.err_initial_state_unknown + `blocked_edges: '${id}'`);
+          }
+        });
+
+        data.initial_state.closed_exits.forEach(id => {
+          if (!nodeMap.has(id)) {
+            errors.push(t.err_initial_state_unknown + `closed_exits: '${id}'`);
+          } else if (nodeMap.get(id).type !== 'exit') {
+            errors.push(t.err_initial_state_type + `node '${id}' is not an exit and cannot be in closed_exits`);
+          }
+        });
+      }
+
+      return {
+        valid: errors.length === 0,
+        errors
+      };
+    }
+
+    // --- 5. ROUTING ENGINE: DIJKSTRA'S ALGORITHM WITH EXACT TIE-BREAKING (Section 3.3) ---
+    /**
+     * Lexicographically compare two path arrays of node IDs element-by-element
+     */
+    function comparePaths(pathA, pathB) {
+      const minLen = Math.min(pathA.length, pathB.length);
+      for (let i = 0; i < minLen; i++) {
+        if (pathA[i] < pathB[i]) return -1;
+        if (pathA[i] > pathB[i]) return 1;
+      }
+      return pathA.length - pathB.length;
+    }
+
+    /**
+     * Run Dijkstra to find shortest paths to all reachable open exits.
+     * Implements strict tie-breaking rules:
+     * 1. Minimum total cost
+     * 2. Lexicographically smallest exit ID
+     * 3. Lexicographically smallest node sequence
+     */
+    function computeOptimalRoute(nodes, edges, blockedNodes, blockedEdges, closedExits, startNodeId) {
+      // Rule: Check if selected start node is blocked
+      if (blockedNodes.has(startNodeId)) {
+        return {
+          status: 'BLOCKED_START',
+          cost: 0,
+          exit: null,
+          path: [],
+          alternative: null
+        };
+      }
+
+      // Build graph adjacency list
+      // Excluded:
+      // - blocked nodes and incident edges
+      // - blocked edges
+      // - closed exits (cannot be used as destination or intermediate step)
+      const adj = new Map();
+      nodes.forEach(n => adj.set(n.id, []));
+
+      edges.forEach(edge => {
+        if (blockedEdges.has(edge.id)) return;
+        const u = edge.from;
+        const v = edge.to;
+
+        // Skip if either endpoint is in blocked_nodes
+        if (blockedNodes.has(u) || blockedNodes.has(v)) return;
+
+        // Skip if either endpoint is a closed exit
+        if (closedExits.has(u) || closedExits.has(v)) return;
+
+        adj.get(u).push({ neighbor: v, cost: edge.cost, edgeId: edge.id });
+        adj.get(v).push({ neighbor: u, cost: edge.cost, edgeId: edge.id });
+      });
+
+      // Distances and best path sequences
+      const dist = new Map();
+      const bestPath = new Map();
+
+      dist.set(startNodeId, 0);
+      bestPath.set(startNodeId, [startNodeId]);
+
+      // Simple priority queue (array based for 2-60 nodes, fast and completely reliable)
+      const queue = [{ node: startNodeId, cost: 0, path: [startNodeId] }];
+
+      while (queue.length > 0) {
+        // Find smallest element in queue with tie-breaking
+        queue.sort((a, b) => {
+          if (a.cost !== b.cost) return a.cost - b.cost;
+          return comparePaths(a.path, b.path);
+        });
+
+        const current = queue.shift();
+        const u = current.node;
+        const d = current.cost;
+        const pathU = current.path;
+
+        if (d > dist.get(u)) continue;
+        if (d === dist.get(u) && comparePaths(pathU, bestPath.get(u)) > 0) continue;
+
+        const neighbors = adj.get(u) || [];
+        for (const edge of neighbors) {
+          const v = edge.neighbor;
+          const newCost = d + edge.cost;
+          const newPath = [...pathU, v];
+
+          const currentDistV = dist.has(v) ? dist.get(v) : Infinity;
+          const currentPathV = bestPath.get(v);
+
+          let update = false;
+          if (newCost < currentDistV) {
+            update = true;
+          } else if (newCost === currentDistV) {
+            if (currentPathV && comparePaths(newPath, currentPathV) < 0) {
+              update = true;
+            }
+          }
+
+          if (update) {
+            dist.set(v, newCost);
+            bestPath.set(v, newPath);
+            queue.push({ node: v, cost: newCost, path: newPath });
+          }
+        }
+      }
+
+      // Collect all reachable open exits
+      const reachableExits = [];
+      nodes.forEach(n => {
+        if (n.type === 'exit' && !closedExits.has(n.id) && dist.has(n.id)) {
+          reachableExits.push({
+            id: n.id,
+            cost: dist.get(n.id),
+            path: bestPath.get(n.id)
+          });
+        }
+      });
+
+      if (reachableExits.length === 0) {
+        return {
+          status: 'NO_ROUTE',
+          cost: 0,
+          exit: null,
+          path: [],
+          alternative: null
+        };
+      }
+
+      // Apply Tie-Breaking across reachable open exits:
+      // 1. Primary: minimum path cost
+      // 2. Secondary: lexicographically smallest exit ID
+      // 3. Tertiary: lexicographically smallest sequence of node IDs
+      reachableExits.sort((a, b) => {
+        if (a.cost !== b.cost) return a.cost - b.cost;
+        if (a.id < b.id) return -1;
+        if (a.id > b.id) return 1;
+        return comparePaths(a.path, b.path);
+      });
+
+      const winner = reachableExits[0];
+      const alternative = reachableExits.length > 1 ? reachableExits[1] : null;
+
+      return {
+        status: 'SUCCESS',
+        cost: winner.cost,
+        exit: winner.id,
+        path: winner.path,
+        alternative: alternative
+      };
+    }
+
+    // --- 6. SVG MAP RENDERER & INTERACTION CONTROLLER ---
+    const MapRenderer = {
+      svg: null,
+      viewport: null,
+      nodesLayer: null,
+      edgesLayer: null,
+      edgeBadgesLayer: null,
+      routeHighlightLayer: null,
+      simLayer: null,
+      popover: null,
+
+      init() {
+        this.svg = document.getElementById('mapSvg');
+        this.viewport = document.getElementById('viewportGroup');
+        this.nodesLayer = document.getElementById('nodesLayer');
+        this.edgesLayer = document.getElementById('edgesLayer');
+        this.edgeBadgesLayer = document.getElementById('edgeBadgesLayer');
+        this.routeHighlightLayer = document.getElementById('routeHighlightLayer');
+        this.simLayer = document.getElementById('simulationLayer');
+        this.popover = document.getElementById('nodePopover');
+
+        this.setupPanZoom();
+      },
+
+      setupPanZoom() {
+        const container = document.getElementById('svgContainer');
+        
+        container.addEventListener('mousedown', (e) => {
+          if (e.target.closest('.map-node') || e.target.closest('.map-edge-group') || e.target.closest('#nodePopover')) {
+            return;
+          }
+          State.isPanning = true;
+          State.lastMouseX = e.clientX;
+          State.lastMouseY = e.clientY;
+          this.hidePopover();
+        });
+
+        window.addEventListener('mousemove', (e) => {
+          if (!State.isPanning) return;
+          const dx = e.clientX - State.lastMouseX;
+          const dy = e.clientY - State.lastMouseY;
+          State.panX += dx;
+          State.panY += dy;
+          State.lastMouseX = e.clientX;
+          State.lastMouseY = e.clientY;
+          this.applyTransform();
+        });
+
+        window.addEventListener('mouseup', () => {
+          State.isPanning = false;
+        });
+
+        container.addEventListener('wheel', (e) => {
+          e.preventDefault();
+          const zoomFactor = e.deltaY < 0 ? 1.15 : 0.87;
+          const newZoom = Math.min(Math.max(State.zoom * zoomFactor, 0.4), 4.0);
+          
+          // Zoom towards cursor
+          const rect = container.getBoundingClientRect();
+          const mouseX = e.clientX - rect.left;
+          const mouseY = e.clientY - rect.top;
+
+          State.panX = mouseX - (mouseX - State.panX) * (newZoom / State.zoom);
+          State.panY = mouseY - (mouseY - State.panY) * (newZoom / State.zoom);
+          State.zoom = newZoom;
+          this.applyTransform();
+        }, { passive: false });
+      },
+
+      applyTransform() {
+        this.viewport.setAttribute('transform', `translate(${State.panX}, ${State.panY}) scale(${State.zoom})`);
+      },
+
+      fitToScreen() {
+        const nodes = State.buildingData.nodes;
+        if (!nodes || nodes.length === 0) return;
+
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        nodes.forEach(n => {
+          if (n.x < minX) minX = n.x;
+          if (n.x > maxX) maxX = n.x;
+          if (n.y < minY) minY = n.y;
+          if (n.y > maxY) maxY = n.y;
+        });
+
+        const container = document.getElementById('svgContainer');
+        const width = container.clientWidth || 800;
+        const height = container.clientHeight || 500;
+        const padding = 100;
+
+        const graphWidth = (maxX - minX) || 100;
+        const graphHeight = (maxY - minY) || 100;
+
+        const scaleX = (width - padding * 2) / graphWidth;
+        const scaleY = (height - padding * 2) / graphHeight;
+        State.zoom = Math.min(Math.max(Math.min(scaleX, scaleY), 0.6), 2.2);
+
+        State.panX = (width - graphWidth * State.zoom) / 2 - minX * State.zoom;
+        State.panY = (height - graphHeight * State.zoom) / 2 - minY * State.zoom;
+
+        this.applyTransform();
+      },
+
+      render() {
+        const nodes = State.buildingData.nodes;
+        const edges = State.buildingData.edges;
+        const nodeMap = new Map(nodes.map(n => [n.id, n]));
+
+        // Clear all layers
+        this.edgesLayer.innerHTML = '';
+        this.routeHighlightLayer.innerHTML = '';
+        this.edgeBadgesLayer.innerHTML = '';
+        this.nodesLayer.innerHTML = '';
+        this.simLayer.innerHTML = '';
+
+        // 1. Render Edges
+        edges.forEach(edge => {
+          const u = nodeMap.get(edge.from);
+          const v = nodeMap.get(edge.to);
+          if (!u || !v) return;
+
+          const isBlocked = State.blockedEdges.has(edge.id) ||
+                            State.blockedNodes.has(edge.from) ||
+                            State.blockedNodes.has(edge.to) ||
+                            State.closedExits.has(edge.from) ||
+                            State.closedExits.has(edge.to);
+
+          const isDirectlyBlocked = State.blockedEdges.has(edge.id);
+
+          const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+          group.setAttribute('class', 'map-edge-group');
+          group.setAttribute('data-edge-id', edge.id);
+
+          // Corridor line
+          const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+          line.setAttribute('x1', u.x);
+          line.setAttribute('y1', u.y);
+          line.setAttribute('x2', v.x);
+          line.setAttribute('y2', v.y);
+          line.setAttribute('class', 'map-edge-line transition-all duration-200');
+          line.setAttribute('stroke-linecap', 'round');
+
+          if (isBlocked) {
+            line.setAttribute('stroke', '#ef4444');
+            line.setAttribute('stroke-width', '3');
+            line.setAttribute('stroke-dasharray', '6, 4');
+            line.setAttribute('opacity', '0.75');
+          } else {
+            line.setAttribute('stroke', '#475569');
+            line.setAttribute('stroke-width', '3.5');
+            line.setAttribute('opacity', '0.85');
+          }
+
+          group.appendChild(line);
+
+          // Click handler to toggle edge blockage
+          group.addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleEdgeBlocked(edge.id);
+          });
+
+          this.edgesLayer.appendChild(group);
+
+          // 2. Render Cost Badge at Midpoint
+          const midX = (u.x + v.x) / 2;
+          const midY = (u.y + v.y) / 2;
+
+          const badgeG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+          badgeG.setAttribute('class', 'cursor-pointer select-none transition-transform');
+          badgeG.setAttribute('transform', `translate(${midX}, ${midY})`);
+
+          const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+          rect.setAttribute('x', '-14');
+          rect.setAttribute('y', '-10');
+          rect.setAttribute('width', '28');
+          rect.setAttribute('height', '20');
+          rect.setAttribute('rx', '6');
+          rect.setAttribute('class', 'cost-badge-rect transition-all duration-200');
+          rect.setAttribute('fill', isDirectlyBlocked ? '#7f1d1d' : '#0f172a');
+          rect.setAttribute('stroke', isDirectlyBlocked ? '#ef4444' : '#334155');
+          rect.setAttribute('stroke-width', '1.5');
+
+          const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+          text.setAttribute('x', '0');
+          text.setAttribute('y', '3.5');
+          text.setAttribute('text-anchor', 'middle');
+          text.setAttribute('fill', isDirectlyBlocked ? '#fca5a5' : '#cbd5e1');
+          text.setAttribute('font-size', '10');
+          text.setAttribute('font-weight', '700');
+          text.setAttribute('font-family', 'monospace');
+          text.textContent = edge.cost;
+
+          badgeG.appendChild(rect);
+          badgeG.appendChild(text);
+
+          badgeG.addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleEdgeBlocked(edge.id);
+          });
+
+          this.edgeBadgesLayer.appendChild(badgeG);
+        });
+
+        // 3. Render Active Calculated Route & Alternative Route
+        this.renderRouteHighlights(nodeMap);
+
+        // 4. Render Nodes
+        nodes.forEach(node => {
+          this.renderNode(node);
+        });
+      },
+
+      renderRouteHighlights(nodeMap) {
+        // Alternative Route (Subtle Blue)
+        if (State.alternativeRoute && State.alternativeRoute.path && State.alternativeRoute.path.length > 1) {
+          const altPath = State.alternativeRoute.path;
+          for (let i = 0; i < altPath.length - 1; i++) {
+            const u = nodeMap.get(altPath[i]);
+            const v = nodeMap.get(altPath[i + 1]);
+            if (u && v) {
+              const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+              line.setAttribute('x1', u.x);
+              line.setAttribute('y1', u.y);
+              line.setAttribute('x2', v.x);
+              line.setAttribute('y2', v.y);
+              line.setAttribute('stroke', '#3b82f6');
+              line.setAttribute('stroke-width', '4');
+              line.setAttribute('stroke-dasharray', '8, 6');
+              line.setAttribute('opacity', '0.65');
+              line.setAttribute('class', 'route-pulse-glow-alt');
+              this.routeHighlightLayer.appendChild(line);
+            }
+          }
+        }
+
+        // Optimal Route (Vibrant Emerald Glow + Dash Animation)
+        if (State.calculatedRoute && State.calculatedRoute.status === 'SUCCESS' && State.calculatedRoute.path.length > 1) {
+          const path = State.calculatedRoute.path;
+          for (let i = 0; i < path.length - 1; i++) {
+            const u = nodeMap.get(path[i]);
+            const v = nodeMap.get(path[i + 1]);
+            if (u && v) {
+              // Thick glow base line
+              const glow = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+              glow.setAttribute('x1', u.x);
+              glow.setAttribute('y1', u.y);
+              glow.setAttribute('x2', v.x);
+              glow.setAttribute('y2', v.y);
+              glow.setAttribute('stroke', '#10b981');
+              glow.setAttribute('stroke-width', '8');
+              glow.setAttribute('opacity', '0.35');
+              glow.setAttribute('stroke-linecap', 'round');
+              glow.setAttribute('filter', 'url(#glowGreen)');
+              this.routeHighlightLayer.appendChild(glow);
+
+              // Animated core dashed line
+              const animLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+              animLine.setAttribute('x1', u.x);
+              animLine.setAttribute('y1', u.y);
+              animLine.setAttribute('x2', v.x);
+              animLine.setAttribute('y2', v.y);
+              animLine.setAttribute('stroke', '#34d399');
+              animLine.setAttribute('stroke-width', '4.5');
+              animLine.setAttribute('stroke-linecap', 'round');
+              animLine.setAttribute('class', 'route-active-dash');
+              animLine.setAttribute('marker-end', 'url(#routeArrow)');
+              this.routeHighlightLayer.appendChild(animLine);
+            }
+          }
+        }
+      },
+
+      renderNode(node) {
+        const isStart = (node.id === State.startNodeId);
+        const isBlocked = State.blockedNodes.has(node.id);
+        const isClosed = (node.type === 'exit' && State.closedExits.has(node.id));
+        const isInRoute = State.calculatedRoute && State.calculatedRoute.path && State.calculatedRoute.path.includes(node.id);
+
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        g.setAttribute('class', 'map-node');
+        g.setAttribute('data-node-id', node.id);
+        g.setAttribute('transform', `translate(${node.x}, ${node.y})`);
+
+        // Start Node Animated Pulse Ping
+        if (isStart) {
+          const ping = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+          ping.setAttribute('r', '24');
+          ping.setAttribute('fill', isBlocked ? 'rgba(239, 68, 68, 0.4)' : 'rgba(56, 189, 248, 0.4)');
+          ping.setAttribute('class', 'beacon-pulse');
+          g.appendChild(ping);
+        }
+
+        // Node Outer Ring
+        const ring = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        ring.setAttribute('r', isStart ? '23' : '20');
+        ring.setAttribute('fill', '#0f172a');
+        ring.setAttribute('stroke-width', isStart ? '3.5' : (isInRoute ? '3' : '2'));
+
+        // Node Color Determination
+        let nodeColor = '#3b82f6'; // room
+        if (node.type === 'junction') nodeColor = '#8b5cf6';
+        if (node.type === 'exit') nodeColor = '#10b981';
+
+        if (isBlocked || isClosed) {
+          ring.setAttribute('stroke', '#ef4444');
+          ring.setAttribute('fill', '#450a0a');
+        } else if (isStart) {
+          ring.setAttribute('stroke', '#38bdf8');
+          ring.setAttribute('filter', 'url(#glowGold)');
+        } else if (isInRoute) {
+          ring.setAttribute('stroke', '#10b981');
+          ring.setAttribute('filter', 'url(#glowGreen)');
+        } else {
+          ring.setAttribute('stroke', nodeColor);
+        }
+
+        g.appendChild(ring);
+
+        // Node Inner Fill Circle
+        const inner = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        inner.setAttribute('r', '15');
+        inner.setAttribute('fill', (isBlocked || isClosed) ? '#7f1d1d' : nodeColor);
+        inner.setAttribute('opacity', (isBlocked || isClosed) ? '0.8' : '0.9');
+        g.appendChild(inner);
+
+        // Node Icon or ID text
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('text-anchor', 'middle');
+        text.setAttribute('y', '4');
+        text.setAttribute('fill', '#ffffff');
+        text.setAttribute('font-size', '11');
+        text.setAttribute('font-weight', '800');
+        text.setAttribute('font-family', 'monospace');
+        text.textContent = node.id;
+        g.appendChild(text);
+
+        // Label below node
+        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        label.setAttribute('text-anchor', 'middle');
+        label.setAttribute('y', '34');
+        label.setAttribute('fill', (isBlocked || isClosed) ? '#f87171' : '#94a3b8');
+        label.setAttribute('font-size', '11');
+        label.setAttribute('font-weight', '600');
+        label.setAttribute('class', 'pointer-events-none drop-shadow');
+        label.textContent = node.label;
+        g.appendChild(label);
+
+        // Hazard Badges: Blocked Cross or Lock for closed exit
+        if (isBlocked) {
+          const crossG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+          crossG.setAttribute('transform', 'translate(12, -14)');
+          const crossBg = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+          crossBg.setAttribute('r', '8');
+          crossBg.setAttribute('fill', '#ef4444');
+          crossG.appendChild(crossBg);
+
+          const crossText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+          crossText.setAttribute('text-anchor', 'middle');
+          crossText.setAttribute('y', '3');
+          crossText.setAttribute('fill', '#ffffff');
+          crossText.setAttribute('font-size', '10');
+          crossText.setAttribute('font-weight', 'bold');
+          crossText.textContent = '✕';
+          crossG.appendChild(crossText);
+          g.appendChild(crossG);
+        } else if (isClosed) {
+          const lockG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+          lockG.setAttribute('transform', 'translate(12, -14)');
+          const lockBg = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+          lockBg.setAttribute('r', '8');
+          lockBg.setAttribute('fill', '#dc2626');
+          lockG.appendChild(lockBg);
+
+          const lockText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+          lockText.setAttribute('text-anchor', 'middle');
+          lockText.setAttribute('y', '3');
+          lockText.setAttribute('fill', '#ffffff');
+          lockText.setAttribute('font-size', '9');
+          lockText.textContent = '🔒';
+          lockG.appendChild(lockText);
+          g.appendChild(lockG);
+        } else if (isStart) {
+          // START Badge
+          const startBadge = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+          startBadge.setAttribute('transform', 'translate(0, -25)');
+          const sRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+          sRect.setAttribute('x', '-18');
+          sRect.setAttribute('y', '-8');
+          sRect.setAttribute('width', '36');
+          sRect.setAttribute('height', '14');
+          sRect.setAttribute('rx', '4');
+          sRect.setAttribute('fill', '#0284c7');
+          sRect.setAttribute('stroke', '#38bdf8');
+          sRect.setAttribute('stroke-width', '1');
+          startBadge.appendChild(sRect);
+
+          const sText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+          sText.setAttribute('text-anchor', 'middle');
+          sText.setAttribute('y', '2');
+          sText.setAttribute('fill', '#ffffff');
+          sText.setAttribute('font-size', '8');
+          sText.setAttribute('font-weight', 'bold');
+          sText.textContent = 'START';
+          startBadge.appendChild(sText);
+          g.appendChild(startBadge);
+        }
+
+        // Node Interaction Events
+        g.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.handleNodeClick(node);
+        });
+
+        g.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          this.showPopover(node, e.clientX, e.clientY);
+        });
+
+        this.nodesLayer.appendChild(g);
+      },
+
+      handleNodeClick(node) {
+        if (State.interactionMode === 'hazard') {
+          toggleNodeHazard(node.id);
+        } else {
+          // Set Start mode
+          if (node.type === 'exit') {
+            toggleNodeHazard(node.id); // Exits can only be open/closed, not start
+          } else {
+            setStartNode(node.id);
+          }
+        }
+      },
+
+      showPopover(node, clientX, clientY) {
+        const containerRect = document.getElementById('svgContainer').getBoundingClientRect();
+        const x = clientX - containerRect.left + 10;
+        const y = clientY - containerRect.top + 10;
+
+        document.getElementById('popoverTitle').textContent = `${node.id} (${node.label})`;
+        document.getElementById('popoverType').textContent = node.type.toUpperCase();
+        document.getElementById('popoverLabel').textContent = `Coords: (${node.x}, ${node.y})`;
+
+        const btnStart = document.getElementById('popoverBtnSetStart');
+        const btnHazard = document.getElementById('popoverBtnToggleHazard');
+
+        if (node.type === 'exit') {
+          btnStart.classList.add('hidden');
+          btnHazard.textContent = State.closedExits.has(node.id) ? 'Open Exit' : 'Close Exit';
+        } else {
+          btnStart.classList.remove('hidden');
+          btnHazard.textContent = State.blockedNodes.has(node.id) ? 'Unblock Node' : 'Block Node';
+        }
+
+        btnStart.onclick = () => {
+          setStartNode(node.id);
+          this.hidePopover();
+        };
+
+        btnHazard.onclick = () => {
+          toggleNodeHazard(node.id);
+          this.hidePopover();
+        };
+
+        this.popover.style.left = `${Math.min(x, containerRect.width - 200)}px`;
+        this.popover.style.top = `${Math.min(y, containerRect.height - 130)}px`;
+        this.popover.classList.remove('hidden');
+      },
+
+      hidePopover() {
+        this.popover.classList.add('hidden');
+      },
+
+      renderEvacuee(x, y) {
+        this.simLayer.innerHTML = '';
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        g.setAttribute('class', 'evacuee-marker');
+
+        const pulse = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        pulse.setAttribute('cx', x);
+        pulse.setAttribute('cy', y);
+        pulse.setAttribute('r', '14');
+        pulse.setAttribute('fill', 'rgba(245, 158, 11, 0.4)');
+        pulse.setAttribute('class', 'animate-ping');
+        g.appendChild(pulse);
+
+        const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        dot.setAttribute('cx', x);
+        dot.setAttribute('cy', y);
+        dot.setAttribute('r', '8');
+        dot.setAttribute('fill', '#f59e0b');
+        dot.setAttribute('stroke', '#ffffff');
+        dot.setAttribute('stroke-width', '2');
+        g.appendChild(dot);
+
+        this.simLayer.appendChild(g);
+      }
+    };
+
+    // --- 7. SIMULATION WALKTHROUGH CONTROLLER ---
+    const Simulator = {
+      start() {
+        if (!State.calculatedRoute || State.calculatedRoute.status !== 'SUCCESS') return;
+        const path = State.calculatedRoute.path;
+        if (!path || path.length < 2) return;
+
+        State.simulating = true;
+        State.simStepIndex = 0;
+        updateSimControls();
+
+        const nodeMap = new Map(State.buildingData.nodes.map(n => [n.id, n]));
+        
+        const tick = () => {
+          if (!State.simulating) return;
+
+          if (State.simStepIndex >= path.length) {
+            this.stop();
+            return;
+          }
+
+          const currentId = path[State.simStepIndex];
+          const node = nodeMap.get(currentId);
+          if (node) {
+            MapRenderer.renderEvacuee(node.x, node.y);
+            highlightCurrentStep(State.simStepIndex);
+          }
+
+          State.simStepIndex++;
+          const interval = Math.max(250, Math.floor(1000 / State.simSpeed));
+          State.simTimer = setTimeout(tick, interval);
+        };
+
+        tick();
+      },
+
+      pause() {
+        State.simulating = false;
+        if (State.simTimer) clearTimeout(State.simTimer);
+        updateSimControls();
+      },
+
+      stop() {
+        State.simulating = false;
+        if (State.simTimer) clearTimeout(State.simTimer);
+        State.simStepIndex = 0;
+        MapRenderer.simLayer.innerHTML = '';
+        updateSimControls();
+        highlightCurrentStep(-1);
+      }
+    };
+
+    function highlightCurrentStep(stepIdx) {
+      const items = document.querySelectorAll('.step-direction-item');
+      items.forEach((item, idx) => {
+        if (idx === stepIdx - 1) {
+          item.classList.add('bg-brand-500/20', 'border-brand-500', 'text-white');
+        } else {
+          item.classList.remove('bg-brand-500/20', 'border-brand-500', 'text-white');
+        }
+      });
+    }
+
+    function updateSimControls() {
+      const btn = document.getElementById('btnPlaySim');
+      const text = document.getElementById('simPlayText');
+      const t = TRANSLATIONS[State.language];
+
+      if (State.simulating) {
+        text.textContent = t.sim_pause;
+        btn.classList.replace('bg-emerald-600', 'bg-amber-600');
+        btn.classList.replace('hover:bg-emerald-500', 'hover:bg-amber-500');
+      } else {
+        text.textContent = t.sim_play;
+        btn.classList.replace('bg-amber-600', 'bg-emerald-600');
+        btn.classList.replace('hover:bg-amber-500', 'hover:bg-emerald-500');
+      }
+    }
+
+    // --- 8. STATE MUTATION & RECALCULATION HANDLERS ---
+    function recalculate() {
+      const route = computeOptimalRoute(
+        State.buildingData.nodes,
+        State.buildingData.edges,
+        State.blockedNodes,
+        State.blockedEdges,
+        State.closedExits,
+        State.startNodeId
+      );
+
+      State.calculatedRoute = route;
+      State.alternativeRoute = route.alternative || null;
+
+      updateUI();
+      MapRenderer.render();
+    }
+
+    function setStartNode(nodeId) {
+      const node = State.buildingData.nodes.find(n => n.id === nodeId);
+      if (!node) return;
+      State.startNodeId = nodeId;
+      recalculate();
+    }
+
+    function toggleNodeHazard(nodeId) {
+      const node = State.buildingData.nodes.find(n => n.id === nodeId);
+      if (!node) return;
+
+      if (node.type === 'exit') {
+        if (State.closedExits.has(nodeId)) {
+          State.closedExits.delete(nodeId);
+        } else {
+          State.closedExits.add(nodeId);
+        }
+      } else {
+        if (State.blockedNodes.has(nodeId)) {
+          State.blockedNodes.delete(nodeId);
+        } else {
+          State.blockedNodes.add(nodeId);
+        }
+      }
+      recalculate();
+    }
+
+    function toggleEdgeBlocked(edgeId) {
+      if (State.blockedEdges.has(edgeId)) {
+        State.blockedEdges.delete(edgeId);
+      } else {
+        State.blockedEdges.add(edgeId);
+      }
+      recalculate();
+    }
+
+    function resetHazardsToInitial() {
+      State.blockedNodes = new Set(State.fileInitialState.blocked_nodes || []);
+      State.blockedEdges = new Set(State.fileInitialState.blocked_edges || []);
+      State.closedExits = new Set(State.fileInitialState.closed_exits || []);
+      recalculate();
+    }
+
+    function clearAllHazards() {
+      State.blockedNodes.clear();
+      State.blockedEdges.clear();
+      State.closedExits.clear();
+      recalculate();
+    }
+
+    // --- 9. UI UPDATE & RENDERING CONTROLLER ---
+    function updateUI() {
+      const t = TRANSLATIONS[State.language];
+      const route = State.calculatedRoute;
+
+      // Update Header Badges
+      document.getElementById('statNodeCount').textContent = State.buildingData.nodes.length;
+      document.getElementById('statEdgeCount').textContent = State.buildingData.edges.length;
+      const totalHazards = State.blockedNodes.size + State.blockedEdges.size + State.closedExits.size;
+      document.getElementById('statHazardCount').textContent = totalHazards;
+      document.getElementById('activeStartBadge').textContent = State.startNodeId;
+      document.getElementById('buildingNameTag').textContent = State.buildingData.building || 'Building';
+
+      // Route Status Pill & Banner
+      const statusBadge = document.getElementById('routeStatusBadge');
+      const statusText = document.getElementById('routeStatusText');
+      const alertBox = document.getElementById('statusAlertBox');
+      const metricsGrid = document.getElementById('metricsGrid');
+
+      alertBox.classList.add('hidden');
+      alertBox.innerHTML = '';
+
+      if (route.status === 'BLOCKED_START') {
+        statusBadge.className = 'flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold shadow-sm bg-rose-500/20 text-rose-400 border border-rose-500/40';
+        statusText.textContent = t.status_start_blocked;
+
+        alertBox.className = 'p-3 rounded-xl border border-rose-500/40 bg-rose-950/40 text-rose-300 text-xs flex items-center gap-2 mb-3';
+        alertBox.innerHTML = `
+          <svg class="w-4 h-4 text-rose-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <div>
+            <strong>${t.status_start_blocked}</strong>: Node <code>${State.startNodeId}</code> is currently blocked or unavailable. Choose an unblocked room or corridor.
+          </div>
+        `;
+        alertBox.classList.remove('hidden');
+
+        document.getElementById('metricCost').textContent = '—';
+        document.getElementById('metricExit').textContent = '—';
+        document.getElementById('metricSteps').textContent = '—';
+      } else if (route.status === 'NO_ROUTE') {
+        statusBadge.className = 'flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold shadow-sm bg-amber-500/20 text-amber-400 border border-amber-500/40';
+        statusText.textContent = t.status_no_route;
+
+        alertBox.className = 'p-3 rounded-xl border border-amber-500/40 bg-amber-950/40 text-amber-300 text-xs flex items-center gap-2 mb-3';
+        alertBox.innerHTML = `
+          <svg class="w-4 h-4 text-amber-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <div>
+            <strong>${t.status_no_route}</strong>: All exit pathways are blocked or unreachable from ${State.startNodeId}.
+          </div>
+        `;
+        alertBox.classList.remove('hidden');
+
+        document.getElementById('metricCost').textContent = '—';
+        document.getElementById('metricExit').textContent = '—';
+        document.getElementById('metricSteps').textContent = '—';
+      } else {
+        // SUCCESS
+        statusBadge.className = 'flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold shadow-sm bg-emerald-500/20 text-emerald-400 border border-emerald-500/40';
+        statusText.textContent = t.status_optimal;
+
+        document.getElementById('metricCost').textContent = route.cost;
+        document.getElementById('metricExit').textContent = route.exit;
+        document.getElementById('metricSteps').textContent = Math.max(0, route.path.length - 1);
+      }
+
+      // Breadcrumb Path Rendering
+      const bcContainer = document.getElementById('pathBreadcrumbs');
+      bcContainer.innerHTML = '';
+
+      if (route.status === 'SUCCESS' && route.path.length > 0) {
+        document.getElementById('pathLengthBadge').textContent = `${route.path.length} nodes`;
+        route.path.forEach((nodeId, idx) => {
+          const badge = document.createElement('span');
+          badge.className = 'px-2 py-0.5 rounded-md font-bold cursor-pointer transition flex items-center gap-1 ' +
+            (idx === 0 ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40' :
+             idx === route.path.length - 1 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' :
+             'bg-slate-800 text-slate-300 border border-slate-700 hover:border-slate-500');
+          badge.textContent = nodeId;
+          badge.title = `Click to set ${nodeId} as start`;
+          badge.onclick = () => setStartNode(nodeId);
+          bcContainer.appendChild(badge);
+
+          if (idx < route.path.length - 1) {
+            const arrow = document.createElement('span');
+            arrow.className = 'text-slate-600 font-bold';
+            arrow.innerHTML = '&rarr;';
+            bcContainer.appendChild(arrow);
+          }
+        });
+      } else {
+        document.getElementById('pathLengthBadge').textContent = '0 nodes';
+        const emptyMsg = document.createElement('span');
+        emptyMsg.className = 'text-slate-500 italic text-[11px]';
+        emptyMsg.textContent = route.status === 'BLOCKED_START' ? t.status_start_blocked : t.status_no_route;
+        bcContainer.appendChild(emptyMsg);
+      }
+
+      // Turn by Turn List
+      renderTurnByTurn(route);
+
+      // Alternative Route Card
+      const altCard = document.getElementById('altRouteContainer');
+      if (route.alternative) {
+        altCard.classList.remove('hidden');
+        document.getElementById('altRouteCost').textContent = `${t.metric_cost}: ${route.alternative.cost}`;
+        document.getElementById('altRoutePath').innerHTML = route.alternative.path.join(' &rarr; ');
+      } else {
+        altCard.classList.add('hidden');
+      }
+
+      // Update Start Node Select Dropdown
+      populateStartSelect();
+
+      // Render Hazard Manager List
+      renderHazardList();
+    }
+
+    function renderTurnByTurn(route) {
+      const container = document.getElementById('turnByTurnList');
+      container.innerHTML = '';
+      const nodeMap = new Map(State.buildingData.nodes.map(n => [n.id, n]));
+
+      if (!route || route.status !== 'SUCCESS' || route.path.length < 2) {
+        container.innerHTML = '<p class="text-slate-500 italic text-[11px]">No active route instructions to display.</p>';
+        return;
+      }
+
+      const path = route.path;
+      for (let i = 0; i < path.length - 1; i++) {
+        const u = nodeMap.get(path[i]);
+        const v = nodeMap.get(path[i + 1]);
+        if (!u || !v) continue;
+
+        // Find connecting edge cost
+        const edge = State.buildingData.edges.find(e => 
+          (e.from === u.id && e.to === v.id) || (e.from === v.id && e.to === u.id)
+        );
+        const cost = edge ? edge.cost : 1;
+
+        const div = document.createElement('div');
+        div.className = 'step-direction-item text-[11px] py-1 px-2 rounded-lg border border-transparent transition-all flex items-center justify-between';
+        div.innerHTML = `
+          <div>
+            <span class="font-bold text-slate-200">Step ${i + 1}:</span> 
+            <span>${u.label} (${u.id}) &rarr; ${v.label} (${v.id})</span>
+          </div>
+          <span class="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">Cost: ${cost}</span>
+        `;
+        container.appendChild(div);
+      }
+    }
+
+    function populateStartSelect() {
+      const select = document.getElementById('startNodeSelect');
+      const currentVal = State.startNodeId;
+      select.innerHTML = '';
+
+      State.buildingData.nodes.forEach(node => {
+        if (node.type === 'exit') return; // Cannot start at exit
+        const isBlocked = State.blockedNodes.has(node.id);
+        const opt = document.createElement('option');
+        opt.value = node.id;
+        opt.textContent = `${node.id} - ${node.label} (${node.type.toUpperCase()})${isBlocked ? ' [BLOCKED]' : ''}`;
+        if (node.id === currentVal) opt.selected = true;
+        select.appendChild(opt);
+      });
+    }
+
+    function renderHazardList() {
+      const container = document.getElementById('hazardListContainer');
+      container.innerHTML = '';
+
+      const query = State.hazardSearchQuery.toLowerCase();
+      const tab = State.activeHazardTab;
+
+      // 1. Rooms & Junctions
+      if (tab === 'all' || tab === 'nodes') {
+        State.buildingData.nodes.filter(n => n.type !== 'exit').forEach(node => {
+          if (query && !node.id.toLowerCase().includes(query) && !node.label.toLowerCase().includes(query)) return;
+          const isBlocked = State.blockedNodes.has(node.id);
+          container.appendChild(createHazardRow(
+            node.id,
+            `${node.label} (${node.type})`,
+            isBlocked ? 'Blocked' : 'Clear',
+            isBlocked,
+            () => toggleNodeHazard(node.id)
+          ));
+        });
+      }
+
+      // 2. Corridors (Edges)
+      if (tab === 'all' || tab === 'corridors') {
+        State.buildingData.edges.forEach(edge => {
+          const label = `${edge.from} ↔ ${edge.to} [Cost: ${edge.cost}]`;
+          if (query && !edge.id.toLowerCase().includes(query) && !label.toLowerCase().includes(query)) return;
+          const isBlocked = State.blockedEdges.has(edge.id);
+          container.appendChild(createHazardRow(
+            edge.id,
+            label,
+            isBlocked ? 'Blocked' : 'Clear',
+            isBlocked,
+            () => toggleEdgeBlocked(edge.id)
+          ));
+        });
+      }
+
+      // 3. Exits
+      if (tab === 'all' || tab === 'exits') {
+        State.buildingData.nodes.filter(n => n.type === 'exit').forEach(node => {
+          if (query && !node.id.toLowerCase().includes(query) && !node.label.toLowerCase().includes(query)) return;
+          const isClosed = State.closedExits.has(node.id);
+          container.appendChild(createHazardRow(
+            node.id,
+            `${node.label} (Exit)`,
+            isClosed ? 'Closed' : 'Open',
+            isClosed,
+            () => toggleNodeHazard(node.id)
+          ));
+        });
+      }
+
+      if (container.children.length === 0) {
+        container.innerHTML = '<p class="text-slate-500 italic text-xs text-center py-4">No matching hazard items found.</p>';
+      }
+    }
+
+    function createHazardRow(id, label, statusText, isHazardous, onToggle) {
+      const row = document.createElement('div');
+      row.className = 'flex items-center justify-between p-2 rounded-xl bg-slate-900/80 border border-slate-800/80 text-xs hover:border-slate-700 transition';
+      
+      row.innerHTML = `
+        <div class="flex items-center gap-2 truncate pr-2">
+          <span class="w-2 h-2 rounded-full flex-shrink-0 ${isHazardous ? 'bg-rose-500' : 'bg-emerald-500'}"></span>
+          <span class="font-mono font-bold text-slate-200">${id}</span>
+          <span class="text-slate-400 truncate text-[11px]">${label}</span>
+        </div>
+        <button class="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition flex-shrink-0 ${
+          isHazardous ? 'bg-rose-600/30 text-rose-300 border border-rose-500/40 hover:bg-rose-600/50' : 
+                        'bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700'
+        }">
+          ${statusText}
+        </button>
+      `;
+
+      row.querySelector('button').addEventListener('click', onToggle);
+      return row;
+    }
+
+    // --- 10. NOTIFICATION & ERROR BANNER CONTROLLER ---
+    function showAlert(message, type = 'error') {
+      const container = document.getElementById('alertContainer');
+      const alert = document.createElement('div');
+      const isErr = (type === 'error');
+      
+      alert.className = `p-3 rounded-xl border text-xs flex items-center justify-between transition-all duration-300 ${
+        isErr ? 'bg-rose-950/80 border-rose-700 text-rose-200' : 'bg-emerald-950/80 border-emerald-700 text-emerald-200'
+      }`;
+
+      alert.innerHTML = `
+        <div class="flex items-center gap-2">
+          <svg class="w-4 h-4 flex-shrink-0 ${isErr ? 'text-rose-400' : 'text-emerald-400'}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            ${isErr ? '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>' :
+                      '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>'}
+          </svg>
+          <span>${message}</span>
+        </div>
+        <button class="text-slate-400 hover:text-white p-1">&times;</button>
+      `;
+
+      alert.querySelector('button').onclick = () => alert.remove();
+      container.appendChild(alert);
+
+      setTimeout(() => {
+        if (alert.parentNode) alert.remove();
+      }, 7000);
+    }
+
+    // --- 11. COMPETITION TEST SUITE RUNNER (Section 4.1) ---
+    const TEST_SCENARIOS = [
+      {
+        id: 1,
+        scenario: "Baseline",
+        actionText: "Select R1",
+        expected: "R1 - C1 - C2 - E1; cost 7",
+        run: () => {
+          // Starts from initial_state
+          const nodes = DEFAULT_BUILDING_DATA.nodes;
+          const edges = DEFAULT_BUILDING_DATA.edges;
+          const res = computeOptimalRoute(nodes, edges, new Set(), new Set(), new Set(), 'R1');
+          const pass = (res.status === 'SUCCESS' && res.path.join(' - ') === "R1 - C1 - C2 - E1" && res.cost === 7);
+          return {
+            pass,
+            actual: res.status === 'SUCCESS' ? `${res.path.join(' - ')}; cost ${res.cost}` : res.status,
+            apply: () => {
+              resetHazardsToInitial();
+              setStartNode('R1');
+            }
+          };
+        }
+      },
+      {
+        id: 2,
+        scenario: "Blocked junction",
+        actionText: "Select R1; block C2",
+        expected: "R1 - C1 - C3 - C4 - E2",
+        run: () => {
+          const nodes = DEFAULT_BUILDING_DATA.nodes;
+          const edges = DEFAULT_BUILDING_DATA.edges;
+          const res = computeOptimalRoute(nodes, edges, new Set(['C2']), new Set(), new Set(), 'R1');
+          // Check path sequence is R1 - C1 - C3 - C4 - E2
+          const pass = (res.status === 'SUCCESS' && res.path.join(' - ') === "R1 - C1 - C3 - C4 - E2");
+          return {
+            pass,
+            actual: res.status === 'SUCCESS' ? `${res.path.join(' - ')}; cost ${res.cost}` : res.status,
+            apply: () => {
+              resetHazardsToInitial();
+              State.blockedNodes.add('C2');
+              setStartNode('R1');
+            }
+          };
+        }
+      },
+      {
+        id: 3,
+        scenario: "Exits closed",
+        actionText: "Select R1; close E1 and E2",
+        expected: "No route available",
+        run: () => {
+          const nodes = DEFAULT_BUILDING_DATA.nodes;
+          const edges = DEFAULT_BUILDING_DATA.edges;
+          const res = computeOptimalRoute(nodes, edges, new Set(), new Set(), new Set(['E1', 'E2']), 'R1');
+          const pass = (res.status === 'NO_ROUTE');
+          return {
+            pass,
+            actual: res.status === 'NO_ROUTE' ? "No route available" : `${res.path.join(' - ')}; cost ${res.cost}`,
+            apply: () => {
+              resetHazardsToInitial();
+              State.closedExits.add('E1');
+              State.closedExits.add('E2');
+              setStartNode('R1');
+            }
+          };
+        }
+      },
+      {
+        id: 4,
+        scenario: "Different start",
+        actionText: "Select R2",
+        expected: "R2 - C3 - C4 - E2; cost 7",
+        run: () => {
+          const nodes = DEFAULT_BUILDING_DATA.nodes;
+          const edges = DEFAULT_BUILDING_DATA.edges;
+          const res = computeOptimalRoute(nodes, edges, new Set(), new Set(), new Set(), 'R2');
+          const pass = (res.status === 'SUCCESS' && res.path.join(' - ') === "R2 - C3 - C4 - E2" && res.cost === 7);
+          return {
+            pass,
+            actual: res.status === 'SUCCESS' ? `${res.path.join(' - ')}; cost ${res.cost}` : res.status,
+            apply: () => {
+              resetHazardsToInitial();
+              setStartNode('R2');
+            }
+          };
+        }
+      },
+      {
+        id: 5,
+        scenario: "Blocked start",
+        actionText: "Select R1; then block R1",
+        expected: "Starting location blocked",
+        run: () => {
+          const nodes = DEFAULT_BUILDING_DATA.nodes;
+          const edges = DEFAULT_BUILDING_DATA.edges;
+          const res = computeOptimalRoute(nodes, edges, new Set(['R1']), new Set(), new Set(), 'R1');
+          const pass = (res.status === 'BLOCKED_START');
+          return {
+            pass,
+            actual: res.status === 'BLOCKED_START' ? "Starting location blocked" : `${res.path.join(' - ')}; cost ${res.cost}`,
+            apply: () => {
+              resetHazardsToInitial();
+              State.blockedNodes.add('R1');
+              setStartNode('R1');
+            }
+          };
+        }
+      }
+    ];
+
+    function renderTestModalTable() {
+      const tbody = document.getElementById('testTableBody');
+      tbody.innerHTML = '';
+
+      TEST_SCENARIOS.forEach(item => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-slate-900/60 transition';
+        tr.id = `test-row-${item.id}`;
+
+        tr.innerHTML = `
+          <td class="p-2.5 font-bold text-white">${item.scenario}</td>
+          <td class="p-2.5 text-slate-400">${item.actionText}</td>
+          <td class="p-2.5 text-cyan-300 font-semibold">${item.expected}</td>
+          <td class="p-2.5 text-slate-300 test-actual-cell">—</td>
+          <td class="p-2.5 text-center test-status-cell">
+            <span class="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400">Ready</span>
+          </td>
+          <td class="p-2.5 text-center">
+            <button class="px-2.5 py-1 rounded bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 text-[10px] font-bold border border-indigo-500/30 transition btn-apply-test">
+              Apply
+            </button>
+          </td>
+        `;
+
+        tr.querySelector('.btn-apply-test').onclick = () => {
+          const res = item.run();
+          res.apply();
+          document.getElementById('testRunnerModal').classList.add('hidden');
+        };
+
+        tbody.appendChild(tr);
+      });
+    }
+
+    function runAllTestChecks() {
+      let passCount = 0;
+      TEST_SCENARIOS.forEach(item => {
+        const row = document.getElementById(`test-row-${item.id}`);
+        const result = item.run();
+
+        const actualCell = row.querySelector('.test-actual-cell');
+        const statusCell = row.querySelector('.test-status-cell');
+
+        actualCell.textContent = result.actual;
+
+        if (result.pass) {
+          passCount++;
+          statusCell.innerHTML = '<span class="px-2 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold">PASS</span>';
+        } else {
+          statusCell.innerHTML = '<span class="px-2 py-0.5 rounded text-[10px] bg-rose-500/20 text-rose-400 border border-rose-500/30 font-bold">FAIL</span>';
+        }
+      });
+
+      const badge = document.getElementById('testSummaryBadge');
+      badge.textContent = `${passCount} / ${TEST_SCENARIOS.length} PASSED`;
+      badge.className = passCount === TEST_SCENARIOS.length ?
+        'text-xs font-mono font-bold px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' :
+        'text-xs font-mono font-bold px-3 py-1 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/40';
+    }
+
+    // --- 12. EXPORT FUNCTIONS (PNG, SVG, JSON) ---
+    function exportMapSvg() {
+      const svg = document.getElementById('mapSvg');
+      const serializer = new XMLSerializer();
+      let source = serializer.serializeToString(svg);
+
+      if(!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)){
+        source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+      }
+
+      const blob = new Blob([source], {type: "image/svg+xml;charset=utf-8"});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `smart-escape-map-${Date.now()}.svg`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function exportMapPng() {
+      const svg = document.getElementById('mapSvg');
+      const serializer = new XMLSerializer();
+      let source = serializer.serializeToString(svg);
+
+      const img = new Image();
+      const svgBlob = new Blob([source], {type: "image/svg+xml;charset=utf-8"});
+      const url = URL.createObjectURL(svgBlob);
+
+      img.onload = function () {
+        const canvas = document.createElement("canvas");
+        const rect = svg.getBoundingClientRect();
+        canvas.width = rect.width * 2;
+        canvas.height = rect.height * 2;
+        const ctx = canvas.getContext("2d");
+        ctx.scale(2, 2);
+        ctx.fillStyle = "#020617";
+        ctx.fillRect(0, 0, rect.width, rect.height);
+        ctx.drawImage(img, 0, 0);
+
+        URL.revokeObjectURL(url);
+        const pngUrl = canvas.toDataURL("image/png");
+        const a = document.createElement("a");
+        a.href = pngUrl;
+        a.download = `smart-escape-map-${Date.now()}.png`;
+        a.click();
+      };
+      img.src = url;
+    }
+
+    function exportStateJson() {
+      const payload = {
+        building: State.buildingData.building,
+        nodes: State.buildingData.nodes,
+        edges: State.buildingData.edges,
+        initial_state: {
+          blocked_nodes: Array.from(State.blockedNodes),
+          blocked_edges: Array.from(State.blockedEdges),
+          closed_exits: Array.from(State.closedExits)
+        }
+      };
+
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${(State.buildingData.building || 'building').toLowerCase().replace(/\s+/g, '-')}-state.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // --- 13. I18N LOCALIZATION TRANSLATOR ---
+    function setLanguage(lang) {
+      State.language = lang;
+      localStorage.setItem('smart_escape_lang', lang);
+
+      // Toggle Button Visuals
+      const enBtn = document.getElementById('langEnBtn');
+      const bnBtn = document.getElementById('langBnBtn');
+      if (lang === 'bn') {
+        bnBtn.className = 'px-2 py-1 text-xs font-semibold rounded transition bg-brand-600 text-white';
+        enBtn.className = 'px-2 py-1 text-xs font-semibold rounded transition text-slate-400 hover:text-white';
+        document.documentElement.lang = 'bn';
+      } else {
+        enBtn.className = 'px-2 py-1 text-xs font-semibold rounded transition bg-brand-600 text-white';
+        bnBtn.className = 'px-2 py-1 text-xs font-semibold rounded transition text-slate-400 hover:text-white';
+        document.documentElement.lang = 'en';
+      }
+
+      // Update all elements with data-i18n attribute
+      const t = TRANSLATIONS[lang];
+      document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        if (t[key]) {
+          el.textContent = t[key];
+        }
+      });
+
+      updateUI();
+    }
+
+    // --- 14. EVENT LISTENERS & SETUP ---
+    function setupEventListeners() {
+      // Language Switchers
+      document.getElementById('langEnBtn').onclick = () => setLanguage('en');
+      document.getElementById('langBnBtn').onclick = () => setLanguage('bn');
+
+      // High Contrast Mode Toggle
+      document.getElementById('btnHighContrast').onclick = () => {
+        State.highContrast = !State.highContrast;
+        document.body.classList.toggle('high-contrast', State.highContrast);
+        MapRenderer.render();
+      };
+
+      // Reset Hazards Button
+      document.getElementById('btnResetHazards').onclick = () => resetHazardsToInitial();
+      document.getElementById('btnRestoreInitial').onclick = () => resetHazardsToInitial();
+      document.getElementById('btnClearAllHazards').onclick = () => clearAllHazards();
+
+      // Canvas Interaction Mode Selector
+      const modeStartBtn = document.getElementById('modeSelectStart');
+      const modeHazardBtn = document.getElementById('modeToggleHazard');
+
+      modeStartBtn.onclick = () => {
+        State.interactionMode = 'start';
+        modeStartBtn.className = 'px-2.5 py-1 rounded-md text-xs font-medium transition bg-brand-600 text-white shadow-sm flex items-center gap-1';
+        modeHazardBtn.className = 'px-2.5 py-1 rounded-md text-xs font-medium transition text-slate-300 hover:text-white flex items-center gap-1';
+      };
+
+      modeHazardBtn.onclick = () => {
+        State.interactionMode = 'hazard';
+        modeHazardBtn.className = 'px-2.5 py-1 rounded-md text-xs font-medium transition bg-rose-600 text-white shadow-sm flex items-center gap-1';
+        modeStartBtn.className = 'px-2.5 py-1 rounded-md text-xs font-medium transition text-slate-300 hover:text-white flex items-center gap-1';
+      };
+
+      // Start Node Dropdown Change
+      document.getElementById('startNodeSelect').onchange = (e) => {
+        setStartNode(e.target.value);
+      };
+
+      // Zoom Buttons
+      document.getElementById('btnZoomIn').onclick = () => {
+        State.zoom = Math.min(State.zoom * 1.25, 4.0);
+        MapRenderer.applyTransform();
+      };
+      document.getElementById('btnZoomOut').onclick = () => {
+        State.zoom = Math.max(State.zoom * 0.8, 0.4);
+        MapRenderer.applyTransform();
+      };
+      document.getElementById('btnZoomReset').onclick = () => {
+        MapRenderer.fitToScreen();
+      };
+
+      // Simulation Controls
+      document.getElementById('btnPlaySim').onclick = () => {
+        if (State.simulating) {
+          Simulator.pause();
+        } else {
+          Simulator.start();
+        }
+      };
+
+      document.getElementById('btnResetSim').onclick = () => {
+        Simulator.stop();
+      };
+
+      document.getElementById('simSpeedSelect').onchange = (e) => {
+        State.simSpeed = parseFloat(e.target.value) || 1.75;
+      };
+
+      // Export Menu
+      const exportBtn = document.getElementById('btnExportMenu');
+      const exportMenu = document.getElementById('exportMenu');
+      exportBtn.onclick = (e) => {
+        e.stopPropagation();
+        exportMenu.classList.toggle('hidden');
+      };
+      window.addEventListener('click', () => exportMenu.classList.add('hidden'));
+
+      document.getElementById('btnExportPng').onclick = () => exportMapPng();
+      document.getElementById('btnExportSvg').onclick = () => exportMapSvg();
+      document.getElementById('btnExportJson').onclick = () => exportStateJson();
+
+      // Test Suite Modal
+      const testModal = document.getElementById('testRunnerModal');
+      document.getElementById('btnOpenTests').onclick = () => {
+        renderTestModalTable();
+        testModal.classList.remove('hidden');
+      };
+      document.getElementById('btnCloseTests').onclick = () => testModal.classList.add('hidden');
+      document.getElementById('btnCloseTests2').onclick = () => testModal.classList.add('hidden');
+      document.getElementById('btnRunAllTests').onclick = () => runAllTestChecks();
+
+      // Hazard Filter Tabs
+      const tabs = [
+        { id: 'tabHazardAll', val: 'all' },
+        { id: 'tabHazardNodes', val: 'nodes' },
+        { id: 'tabHazardEdges', val: 'corridors' },
+        { id: 'tabHazardExits', val: 'exits' }
+      ];
+      tabs.forEach(tab => {
+        const el = document.getElementById(tab.id);
+        el.onclick = () => {
+          State.activeHazardTab = tab.val;
+          tabs.forEach(t => {
+            const btn = document.getElementById(t.id);
+            if (t.val === tab.val) {
+              btn.className = 'flex-1 py-1 rounded-lg font-medium transition bg-slate-800 text-white shadow-sm';
+            } else {
+              btn.className = 'flex-1 py-1 rounded-lg font-medium transition text-slate-400 hover:text-slate-200';
+            }
+          });
+          renderHazardList();
+        };
+      });
+
+      // Hazard Search Input
+      document.getElementById('hazardSearchInput').oninput = (e) => {
+        State.hazardSearchQuery = e.target.value;
+        renderHazardList();
+      };
+
+      // File Upload Handling
+      const fileInput = document.getElementById('fileUploadInput');
+      fileInput.onchange = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+            const json = JSON.parse(event.target.result);
+            const validation = validateBuildingJson(json);
+            if (!validation.valid) {
+              showAlert(`Validation Failed: ${validation.errors.join(' ')}`, 'error');
+              return;
+            }
+
+            // Accept and apply new graph
+            State.buildingData = json;
+            State.fileInitialState = JSON.parse(JSON.stringify(json.initial_state));
+            State.blockedNodes = new Set(json.initial_state.blocked_nodes || []);
+            State.blockedEdges = new Set(json.initial_state.blocked_edges || []);
+            State.closedExits = new Set(json.initial_state.closed_exits || []);
+
+            // Pick first unblocked room/junction as start
+            const firstValidStart = json.nodes.find(n => n.type !== 'exit' && !State.blockedNodes.has(n.id));
+            State.startNodeId = firstValidStart ? firstValidStart.id : json.nodes[0].id;
+
+            showAlert(TRANSLATIONS[State.language].alert_json_success, 'success');
+            recalculate();
+            MapRenderer.fitToScreen();
+          } catch (err) {
+            showAlert(`${TRANSLATIONS[State.language].alert_invalid_json}: ${err.message}`, 'error');
+          }
+        };
+        reader.readAsText(file);
+      };
+
+      // Drag and Drop File Upload
+      const dropZone = document.getElementById('svgContainer');
+      ['dragenter', 'dragover'].forEach(name => {
+        dropZone.addEventListener(name, (e) => {
+          e.preventDefault();
+          dropZone.classList.add('ring-2', 'ring-brand-500');
+        });
+      });
+      ['dragleave', 'drop'].forEach(name => {
+        dropZone.addEventListener(name, (e) => {
+          e.preventDefault();
+          dropZone.classList.remove('ring-2', 'ring-brand-500');
+        });
+      });
+      dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        if (e.dataTransfer.files.length > 0) {
+          fileInput.files = e.dataTransfer.files;
+          fileInput.dispatchEvent(new Event('change'));
+        }
+      });
+    }
+
+    // --- 15. INITIALIZATION ---
+    window.addEventListener('DOMContentLoaded', () => {
+      MapRenderer.init();
+      setupEventListeners();
+
+      // Check saved language
+      const savedLang = localStorage.getItem('smart_escape_lang') || 'en';
+      setLanguage(savedLang);
+
+      // Load initial state
+      resetHazardsToInitial();
+      
+      // Auto-fit SVG on initial load and resize
+      setTimeout(() => {
+        MapRenderer.fitToScreen();
+      }, 100);
+
+      window.addEventListener('resize', () => {
+        MapRenderer.fitToScreen();
+      });
+    });
+  </script>
+</body>
+</html>
